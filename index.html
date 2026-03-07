@@ -1081,7 +1081,7 @@ function App() {
                                 <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14,paddingBottom:12,borderBottom:"1px solid #f3f4f6"}}>
                                   <ScoreDisplay score={avgScore} size={58}/>
                                   <div style={{flex:1}}>
-                                    <div style={{fontWeight:700,fontSize:15,color:"#111827",marginBottom:3}}>{mgr}</div>
+                                    <div style={{fontWeight:700,fontSize:15,color:"#111827",marginBottom:3}}>{mgr==="Matthew Ortez"?"East":"West"} <span style={{color:"#9ca3af",fontWeight:400,fontSize:13}}>({mgr==="Matthew Ortez"?"Matt Ortez":"Jake Smith"}{"'s"} Team)</span></div>
                                     <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:13}}>
                                       <span style={{color:"#374151",fontWeight:600}}>{fmt(totalArr)}</span>
                                       <span style={{color:"#6b7280"}}>{totalOpps} opps</span>
