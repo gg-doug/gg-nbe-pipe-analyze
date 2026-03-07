@@ -944,7 +944,92 @@ function App() {
                     );
                   })()}
 
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                  {/* ── DIRECT vs INDIRECT ── */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
+
+                    {/* Direct card */}
+                    <div style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:18,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                        <div>
+                          <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.8,marginBottom:3}}>Direct</div>
+                          <div style={{fontSize:22,fontWeight:800,color:"#111827",fontFamily:"'Inter',system-ui,sans-serif"}}>$2.6M</div>
+                          <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>257 opps · 30% of ARR</div>
+                        </div>
+                        {(()=>{
+                          const d=(results.deal_flags||[]).filter(o=>o.channel==="Direct");
+                          const cl=d.filter(o=>o.severity==="clean").length,w=d.filter(o=>o.severity==="warning").length;
+                          return <ScoreDisplay score={d.length?Math.round(((cl+w*0.5)/d.length)*100):0} size={52}/>;
+                        })()}
+                      </div>
+                      <div style={{borderTop:"1px solid #f3f4f6",paddingTop:10,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                        <div>
+                          <div style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>Avg Deal</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#374151"}}>$10,270</div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>Median Age</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#d79334"}}>107 days</div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>270+ Days</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#b91c1c"}}>36 opps</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Indirect card */}
+                    <div style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:18,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                        <div>
+                          <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.8,marginBottom:3}}>Indirect</div>
+                          <div style={{fontSize:22,fontWeight:800,color:"#111827",fontFamily:"'Inter',system-ui,sans-serif"}}>$6.2M</div>
+                          <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>350 opps · 70% of ARR</div>
+                        </div>
+                        {(()=>{
+                          const d=(results.deal_flags||[]).filter(o=>o.channel==="Indirect");
+                          const cl=d.filter(o=>o.severity==="clean").length,w=d.filter(o=>o.severity==="warning").length;
+                          return <ScoreDisplay score={d.length?Math.round(((cl+w*0.5)/d.length)*100):0} size={52}/>;
+                        })()}
+                      </div>
+                      <div style={{borderTop:"1px solid #f3f4f6",paddingTop:10,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                        <div>
+                          <div style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>Avg Deal</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#374151"}}>$17,672</div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>Median Age</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#15803d"}}>51 days</div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>270+ Days</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#b91c1c"}}>39 opps</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Top Partners card */}
+                    <div style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:18,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+{[
+                        {name:"CDW-G",          arr:"$3.46M", opps:231, bar:100, hi:true},
+                        {name:"Bluum",           arr:"$830K",  opps:14,  bar:24,  hi:false},
+                        {name:"CDW Canada",      arr:"$416K",  opps:7,   bar:12,  hi:false},
+                        {name:"Howard Ind.",     arr:"$171K",  opps:10,  bar:5,   hi:false},
+                        {name:"OETC",            arr:"$159K",  opps:4,   bar:5,   hi:false},                      ].map((p,i) => (
+                        <div key={i} style={{marginBottom:5}}>
+                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                            <span style={{fontSize:12,fontWeight:p.hi?700:600,color:p.hi?"#1d4ed8":"#374151"}}>{p.name}</span>
+                            <span style={{fontSize:12,fontWeight:600,color:"#374151"}}>{p.arr} <span style={{color:"#9ca3af",fontWeight:400}}>({p.opps})</span></span>
+                          </div>
+                          <div style={{height:4,background:"#f3f4f6",borderRadius:3,overflow:"hidden"}}>
+                            <div style={{width:`${p.bar}%`,height:"100%",background:p.hi?"#1d4ed8":"#93c5fd",borderRadius:3}}/>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                  </div>
+
+                                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
                     <div style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:22,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
                       <div style={{fontWeight:700,fontSize:15,color:"#111827",letterSpacing:0,textTransform:"none",marginBottom:14}}>Key Findings</div>
                       {(ex.key_findings||[]).map((f,i)=>(
@@ -1565,7 +1650,40 @@ function App() {
 
             {/* ── GUIDELINES ── */}
             {activeTab==="guide" && (
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              <div>
+                {/* Score Formula */}
+                <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"20px 24px",marginBottom:16}}>
+                  <div style={{fontWeight:700,fontSize:15,color:"#111827",marginBottom:12}}>How the Hygiene Score is Calculated</div>
+                  <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:14}}>
+                    <div style={{background:"white",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 18px",textAlign:"center"}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.6,marginBottom:4}}>Formula</div>
+                      <div style={{fontSize:15,fontWeight:700,color:"#1d4ed8",fontFamily:"monospace"}}>
+                        ( Clean + Warning × 0.5 ) ÷ Total Opps × 100
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:14}}>
+                    <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:6,padding:"10px 14px"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#15803d",marginBottom:3}}>✓ Clean Opp</div>
+                      <div style={{fontSize:12,color:"#374151"}}>No flags of any kind. Counts as <strong>1.0</strong> toward the score.</div>
+                    </div>
+                    <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:6,padding:"10px 14px"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#d79334",marginBottom:3}}>⚠ Warning Opp</div>
+                      <div style={{fontSize:12,color:"#374151"}}>Has warning flags, no critical flags. Counts as <strong>0.5</strong> toward the score.</div>
+                    </div>
+                    <div style={{background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:6,padding:"10px 14px"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#b91c1c",marginBottom:3}}>✗ Critical Opp</div>
+                      <div style={{fontSize:12,color:"#374151"}}>Has any critical flag. Counts as <strong>0</strong> toward the score.</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+                    <div style={{fontSize:12,color:"#374151"}}><span style={{fontWeight:600,color:"#15803d"}}>≥ 75</span> — Healthy Pipeline</div>
+                    <div style={{fontSize:12,color:"#374151"}}><span style={{fontWeight:600,color:"#d79334"}}>50–74</span> — Needs Attention</div>
+                    <div style={{fontSize:12,color:"#374151"}}><span style={{fontWeight:600,color:"#b91c1c"}}>&lt; 50</span> — Critical Issues Present</div>
+                  </div>
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
                 {[
                   {title:"Universal Requirements",icon:"📋",items:["Notes/activity log present on every opp","Primary quote generated & marked as primary","Pilots: 2 opps required ($0 nominal + full deal value)","Minimum New Business ARR: $2,000","Exceptions: NYCDOE, LAUSD, BOCES, large district contracts"]},
                   {title:"Opportunity Age Guardrails",icon:"⏱",items:["90–269 days: Proof of life required within ±30 days","90+ days in Discovery: Must advance stage or close","270+ days: Must be closed (MM/Ent = Director approval)","Stage Duration 90+ days in Discovery = stagnation flag"]},
@@ -1586,6 +1704,7 @@ function App() {
                     ))}
                   </div>
                 ))}
+              </div>
               </div>
             )}
           </>
