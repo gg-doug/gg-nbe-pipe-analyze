@@ -9,12 +9,14 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #05080f; }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #0d1424; }
-    ::-webkit-scrollbar-thumb { background: #1e2d4a; border-radius: 3px; }
+    body { background: #f4f5f7; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
     details summary::-webkit-details-marker { display: none; }
+    input[type=password] { font-family: inherit; }
   </style>
 </head>
 <body>
@@ -572,24 +574,24 @@ function fetchExecNarrative(analyzed, repSummaries, pdAnalysis, pipeMetrics, tod
 }
 
 // ─── UI Constants ─────────────────────────────────────────────────────────────
-const GG_BLUE   = "#0066FF";
-const GG_DARK   = "#0a0f1e";
-const GG_PANEL  = "#0d1424";
-const GG_BORDER = "#1e2d4a";
+const GG_BLUE   = "#2563eb";
+const GG_DARK   = "#f4f5f7";
+const GG_PANEL  = "#ffffff";
+const GG_BORDER = "#e5e7eb";
 const FLAG_COLORS = {
-  critical: { bg:"#1a0505", border:"#dc2626", text:"#fca5a5" },
-  warning:  { bg:"#1a1005", border:"#d97706", text:"#fcd34d" },
-  clean:    { bg:"#051a0a", border:"#16a34a", text:"#86efac" },
+  critical: { bg:"#fef2f2", border:"#fca5a5", text:"#dc2626" },
+  warning:  { bg:"#fefce8", border:"#fde68a", text:"#92400e" },
+  clean:    { bg:"#f0fdf4", border:"#86efac", text:"#16a34a" },
 };
 
 function ScoreDisplay({ score, size=80 }) {
-  const color = score>=75?"#16a34a":score>=50?"#d97706":"#dc2626";
+  const color = score>=75?"#16a34a":score>=50?"#b45309":"#dc2626";
   const r=size/2-7, circ=2*Math.PI*r, fill=(score/100)*circ;
   return (
     <div style={{position:"relative",width:size,height:size,flexShrink:0}}>
       <svg width={size} height={size} style={{transform:"rotate(-90deg)",position:"absolute"}}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={GG_BORDER} strokeWidth="5"/>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="5" strokeDasharray={`${fill} ${circ}`} strokeLinecap="round"/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e5e7eb" strokeWidth="6"/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="6" strokeDasharray={`${fill} ${circ}`} strokeLinecap="round"/>
       </svg>
       <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color,fontWeight:800,fontSize:size*0.22,fontFamily:"monospace"}}>{score}</div>
     </div>
@@ -598,24 +600,24 @@ function ScoreDisplay({ score, size=80 }) {
 
 function RateBar({ rate, color="#0066FF" }) {
   return (
-    <div style={{flex:1,height:5,background:"#1e2d4a",borderRadius:3,overflow:"hidden",minWidth:60}}>
+    <div style={{flex:1,height:5,background:"#e5e7eb",borderRadius:3,overflow:"hidden",minWidth:60}}>
       <div style={{width:`${Math.min(rate,100)}%`,height:"100%",background:color,borderRadius:3}}/>
     </div>
   );
 }
 
 function Badge({ severity }) {
-  const map={critical:["🔴","#dc2626"],warning:["🟡","#d97706"],clean:["🟢","#16a34a"]};
+  const map={critical:["🔴","#dc2626"],warning:["🟡","#92400e"],clean:["🟢","#16a34a"]};
   const [icon,color]=map[severity]||map.warning;
   return <span style={{background:`${color}22`,color,border:`1px solid ${color}44`,padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:700,letterSpacing:0.8,whiteSpace:"nowrap"}}>{icon} {severity.toUpperCase()}</span>;
 }
 
 function StatCard({ label, value, sub, color="#fff" }) {
   return (
-    <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:"14px 18px",flex:1,minWidth:110}}>
-      <div style={{color:"#64748b",fontSize:11,fontWeight:600,letterSpacing:0.8,textTransform:"uppercase",marginBottom:5}}>{label}</div>
-      <div style={{color,fontSize:24,fontWeight:800,fontFamily:"monospace",lineHeight:1}}>{value}</div>
-      {sub && <div style={{color:"#475569",fontSize:12,marginTop:3}}>{sub}</div>}
+    <div style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:"14px 18px",flex:1,minWidth:110,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+      <div style={{color:"#6b7280",fontSize:10,fontWeight:600,letterSpacing:0.8,textTransform:"uppercase",marginBottom:5}}>{label}</div>
+      <div style={{color,fontSize:22,fontWeight:800,fontFamily:"'Courier New',monospace",lineHeight:1}}>{value}</div>
+      {sub && <div style={{color:"#9ca3af",fontSize:12,marginTop:3}}>{sub}</div>}
     </div>
   );
 }
@@ -754,6 +756,19 @@ function App() {
     if (h === ACCESS_HASH) {
       setUnlocked(true);
       setPinError(false);
+      // Auto-load sample data — no CSV upload step needed right now
+      setTimeout(() => {
+        const csvText = loadSampleData();
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true, encoding: "windows-1252" });
+        if (parsed.data?.length) {
+          const headers = parsed.meta.fields || [];
+          const cm = buildColumnMap(headers);
+          const fname = "sample-gg-nbe-march2026.csv";
+          setCsvData({ rows: parsed.data, headers });
+          setFileName(fname);
+          runAnalysisWithData(parsed.data, headers, cm, fname);
+        }
+      }, 0);
     } else {
       setPinError(true);
       setPinInput("");
@@ -761,18 +776,18 @@ function App() {
   };
 
   if (!unlocked) return (
-    <div style={{minHeight:"100vh",background:"#05080f",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Sans','Helvetica Neue',sans-serif"}}>
-      <div style={{background:"#0d1424",border:"1px solid #1e2d4a",borderRadius:14,padding:"40px 48px",width:340,textAlign:"center"}}>
+    <div style={{minHeight:"100vh",background:"#f4f5f7",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Sans','Helvetica Neue',sans-serif"}}>
+      <div style={{background:"#ffffff",border:"1px solid #e5e7eb",boxShadow:"0 4px 24px rgba(0,0,0,0.08)",borderRadius:14,padding:"40px 48px",width:340,textAlign:"center"}}>
         <div style={{width:44,height:44,background:"#0066ff",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:14,color:"#fff",margin:"0 auto 20px"}}>GG</div>
-        <div style={{fontWeight:700,fontSize:18,marginBottom:6,color:"#e2e8f0"}}>Pipeline Hygiene Analyzer</div>
-        <div style={{color:"#475569",fontSize:13,marginBottom:28}}>GoGuardian · Internal Use Only</div>
+        <div style={{fontWeight:700,fontSize:18,marginBottom:6,color:"#111827"}}>Pipeline Hygiene Analyzer</div>
+        <div style={{color:"#6b7280",fontSize:13,marginBottom:28}}>GoGuardian · Internal Use Only</div>
         <input
           type="password"
           placeholder="Enter PIN"
           value={pinInput}
           onChange={e => { setPinInput(e.target.value); setPinError(false); }}
           onKeyDown={e => e.key === "Enter" && handleUnlock()}
-          style={{width:"100%",padding:"11px 14px",background:"#080d1a",border:`1px solid ${pinError?"#dc2626":"#1e2d4a"}`,borderRadius:8,color:"#e2e8f0",fontSize:16,textAlign:"center",letterSpacing:6,outline:"none",boxSizing:"border-box",marginBottom:8}}
+          style={{width:"100%",padding:"11px 14px",background:"#f9fafb",border:`1px solid ${pinError?"#dc2626":"#d1d5db"}`,borderRadius:8,color:"#111827",fontSize:16,textAlign:"center",letterSpacing:6,outline:"none",boxSizing:"border-box",marginBottom:8}}
         />
         {pinError && <div style={{color:"#fca5a5",fontSize:12,marginBottom:8}}>Incorrect PIN. Try again.</div>}
         <button onClick={handleUnlock}
@@ -784,20 +799,20 @@ function App() {
   );
 
   return (
-    <div style={{minHeight:"100vh",background:GG_DARK,color:"#e2e8f0",fontFamily:"'IBM Plex Sans','Helvetica Neue',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"#f4f5f7",color:"#111827",fontFamily:"'Inter',system-ui,-apple-system,sans-serif"}}>
 
       {/* Header */}
-      <div style={{borderBottom:`1px solid ${GG_BORDER}`,padding:"0 28px",display:"flex",alignItems:"center",justifyContent:"space-between",height:58,background:GG_PANEL}}>
+      <div style={{borderBottom:`1px solid ${GG_BORDER}`,padding:"0 28px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56,background:"#ffffff",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:30,height:30,background:GG_BLUE,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:12,color:"#fff"}}>GG</div>
           <div>
-            <div style={{fontWeight:700,fontSize:15}}>Pipeline Hygiene Analyzer</div>
-            <div style={{color:"#475569",fontSize:11}}>New Business · GoGuardian · Pear Deck Learning</div>
+            <div style={{fontWeight:700,fontSize:15,color:"#111827"}}>Pipeline Hygiene Analyzer</div>
+            <div style={{color:"#6b7280",fontSize:11}}>New Business · GoGuardian · Pear Deck Learning</div>
           </div>
         </div>
         {uiStage==="results" && (
           <button onClick={()=>{setUiStage("upload");setCsvData(null);setResults(null);setPdData(null);setFileName("");}}
-            style={{padding:"6px 14px",background:"transparent",color:"#64748b",border:`1px solid ${GG_BORDER}`,borderRadius:6,cursor:"pointer",fontSize:13}}>
+            style={{padding:"6px 14px",background:"#ffffff",color:"#374151",border:"1px solid #d1d5db",borderRadius:6,cursor:"pointer",fontSize:13}}>
             ← New Analysis
           </button>
         )}
@@ -807,53 +822,59 @@ function App() {
 
         {/* ── UPLOAD ── */}
         {uiStage==="upload" && (
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:400,gap:16}}>
+            <div style={{width:40,height:40,border:"3px solid #e5e7eb",borderTop:"3px solid #2563eb",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+            <div style={{color:"#6b7280",fontSize:14}}>Loading pipeline data…</div>
+          </div>
+        )}
+        {false && (
           <>
             <div onDrop={onDrop} onDragOver={(e)=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
               onClick={()=>document.getElementById("csv-in").click()}
-              style={{border:`2px dashed ${dragOver?GG_BLUE:GG_BORDER}`,borderRadius:14,padding:"60px 32px",textAlign:"center",
+              style={{border:`2px dashed ${dragOver?"#2563eb":"#d1d5db"}`,borderRadius:14,padding:"60px 32px",textAlign:"center",
                 cursor:"pointer",background:dragOver?"#0066ff08":GG_PANEL,transition:"all 0.2s",marginBottom:20}}>
               <input id="csv-in" type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
               <div style={{fontSize:48,marginBottom:14}}>📊</div>
               <div style={{fontWeight:700,fontSize:22,marginBottom:8}}>Drop your Salesforce pipeline CSV here</div>
-              <div style={{color:"#475569",fontSize:14,marginBottom:28}}>or click to browse · analysis runs immediately on upload</div>
+              <div style={{color:"#6b7280",fontSize:14,marginBottom:28}}>or click to browse · analysis runs immediately on upload</div>
               <button onClick={handleSampleData}
-                style={{marginTop:14,padding:"10px 28px",background:"#0066ff11",border:"1px solid #0066ff44",borderRadius:8,
-                  color:"#60a5fa",fontWeight:600,fontSize:13,cursor:"pointer"}}>
+                style={{marginTop:14,padding:"10px 28px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,
+                  color:"#2563eb",fontWeight:600,fontSize:13,cursor:"pointer"}}>
                 📊 Load Sample Data — GoGuardian NBE Pipeline (March 2026)
               </button>
-              <div style={{display:"inline-block",background:"#0066ff0a",border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:"14px 22px",textAlign:"left"}}>
-                <div style={{color:"#64748b",fontSize:11,fontWeight:700,letterSpacing:0.8,marginBottom:10}}>RECOMMENDED SALESFORCE COLUMNS</div>
+              <div style={{display:"inline-block",background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"14px 22px",textAlign:"left"}}>
+                <div style={{color:"#6b7280",fontSize:11,fontWeight:700,letterSpacing:0.8,marginBottom:10}}>RECOMMENDED SALESFORCE COLUMNS</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"4px 28px"}}>
                   {["Account Name","Opportunity Name","Opportunity Owner","Owner Role","Stage","Stage Duration",
                     "Age","New Business ARR","Total ARR","Close Date","Created Date","Last Activity",
                     "Next Step","Next Steps Date","Next Steps Update","Primary Quote Status","Channel","Partner Account","PD ($)"].map(c=>(
-                    <div key={c} style={{color:"#94a3b8",fontSize:12}}>› {c}</div>
+                    <div key={c} style={{color:"#6b7280",fontSize:12}}>› {c}</div>
                   ))}
                 </div>
               </div>
             </div>
-            {error && <div style={{marginTop:12,padding:"12px 16px",background:"#1a050522",border:"1px solid #dc262644",borderRadius:8,color:"#fca5a5",fontSize:14}}>⚠️ {error}</div>}
+            {error && <div style={{marginTop:12,padding:"12px 16px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,color:"#dc2626",fontSize:14}}>⚠️ {error}</div>}
           </>
         )}
 
         {/* ── LOADING ── */}
         {uiStage==="loading" && (
           <div style={{textAlign:"center",padding:"80px 0"}}>
-            <div style={{width:52,height:52,border:`3px solid ${GG_BORDER}`,borderTop:`3px solid ${GG_BLUE}`,
+            <div style={{width:52,height:52,border:"3px solid #e5e7eb",borderTop:"3px solid #2563eb",
               borderRadius:"50%",animation:"spin 0.85s linear infinite",margin:"0 auto 22px"}}/>
-            <div style={{fontWeight:700,fontSize:18,marginBottom:8}}>Analyzing {csvData?.rows?.length||""} opportunities…</div>
-            <div style={{color:"#64748b",fontSize:14}}>{progress}</div>
+            <div style={{fontWeight:700,fontSize:18,color:"#111827",marginBottom:8}}>Analyzing {csvData?.rows?.length||""} opportunities…</div>
+            <div style={{color:"#6b7280",fontSize:14}}>{progress}</div>
           </div>
         )}
 
         {/* ── RESULTS ── */}
         {uiStage==="results" && results && (
           <>
-            <div style={{display:"flex",gap:2,marginBottom:22,borderBottom:`1px solid ${GG_BORDER}`}}>
+            <div style={{display:"flex",gap:0,marginBottom:24,borderBottom:"1px solid #e5e7eb",background:"#ffffff",padding:"0 8px"}}>
               {tabs.map(t=>(
                 <button key={t.id} onClick={()=>setActiveTab(t.id)}
-                  style={{padding:"10px 18px",background:"transparent",border:"none",cursor:"pointer",fontSize:14,fontWeight:600,
-                    color:activeTab===t.id?"#e2e8f0":"#475569",
+                  style={{padding:"11px 20px",background:"transparent",border:"none",cursor:"pointer",fontSize:13,fontWeight:activeTab===t.id?700:500,
+                    color:activeTab===t.id?"#111827":"#6b7280",
                     borderBottom:`2px solid ${activeTab===t.id?GG_BLUE:"transparent"}`,
                     marginBottom:-1,transition:"all 0.15s"}}>
                   {t.label}
@@ -867,38 +888,38 @@ function App() {
               return (
                 <div>
                   <div style={{display:"flex",gap:14,marginBottom:18,flexWrap:"wrap"}}>
-                    <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:"18px 22px",display:"flex",alignItems:"center",gap:18,flexShrink:0}}>
+                    <div style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:"18px 22px",display:"flex",alignItems:"center",gap:18,flexShrink:0,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
                       <ScoreDisplay score={ex.hygiene_score} size={86}/>
                       <div>
-                        <div style={{color:"#64748b",fontSize:11,fontWeight:600,letterSpacing:0.8,textTransform:"uppercase",marginBottom:4}}>Overall Hygiene Score</div>
-                        <div style={{fontSize:13,fontWeight:700,color:ex.hygiene_score>=75?"#86efac":ex.hygiene_score>=50?"#fcd34d":"#fca5a5"}}>
+                        <div style={{color:"#6b7280",fontSize:10,fontWeight:600,letterSpacing:0.8,textTransform:"uppercase",marginBottom:4}}>Overall Hygiene Score</div>
+                        <div style={{fontSize:13,fontWeight:700,color:ex.hygiene_score>=75?"#16a34a":ex.hygiene_score>=50?"#b45309":"#dc2626"}}>
                           {ex.hygiene_score>=75?"✓ Healthy Pipeline":ex.hygiene_score>=50?"⚠ Needs Attention":"✗ Critical Issues Present"}
                         </div>
-                        <div style={{fontSize:12,color:"#334155",marginTop:3}}>{results.fileName} · {todayStr}</div>
+                        <div style={{fontSize:12,color:"#9ca3af",marginTop:3}}>{results.fileName} · {todayStr}</div>
                       </div>
                     </div>
                     <StatCard label="Total Pipeline" value={fmt(ex.total_pipeline_value)} sub={`${ex.total_opps} opps`} color="#60a5fa"/>
                     <StatCard label="Critical ARR" value={fmt(ex.critical_arr)} sub={`${ex.critical_flags} opps`} color="#fca5a5"/>
-                    <StatCard label="Warning ARR" value={fmt(ex.warning_arr)} sub={`${ex.warning_flags} opps`} color="#fcd34d"/>
+                    <StatCard label="Warning ARR" value={fmt(ex.warning_arr)} sub={`${ex.warning_flags} opps`} color="#f59e0b"/>
                     <StatCard label="Clean ARR" value={fmt(ex.clean_arr)} sub={`${ex.clean_opps} opps`} color="#86efac"/>
-                    {hasPD && <StatCard label="PD Attach" value={pct(pdData.attachRate)} sub={`${fmt(pdData.totalPD)} total`} color="#f472b6"/>}
+                    {hasPD && <StatCard label="PD Attach" value={pct(pdData.attachRate)} sub={`${fmt(pdData.totalPD)} total`} color="#7c3aed"/>}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-                    <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:22}}>
-                      <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>🔍 KEY FINDINGS</div>
+                    <div style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:22,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+                      <div style={{fontWeight:700,fontSize:11,color:"#6b7280",letterSpacing:0.8,textTransform:"uppercase",marginBottom:14}}>🔍 KEY FINDINGS</div>
                       {(ex.key_findings||[]).map((f,i)=>(
                         <div key={i} style={{display:"flex",gap:10,marginBottom:10}}>
-                          <span style={{color:"#dc2626",fontWeight:700,flexShrink:0}}>→</span>
-                          <span style={{fontSize:14,color:"#cbd5e1",lineHeight:1.6}}>{f}</span>
+                          <span style={{color:"#ef4444",fontWeight:600,flexShrink:0,fontSize:14}}>→</span>
+                          <span style={{fontSize:13,color:"#374151",lineHeight:1.6}}>{f}</span>
                         </div>
                       ))}
                     </div>
-                    <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:22}}>
-                      <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>✅ LEADERSHIP ACTIONS</div>
+                    <div style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:22,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+                      <div style={{fontWeight:700,fontSize:11,color:"#6b7280",letterSpacing:0.8,textTransform:"uppercase",marginBottom:14}}>✅ LEADERSHIP ACTIONS</div>
                       {(ex.recommended_actions||[]).map((a,i)=>(
                         <div key={i} style={{display:"flex",gap:10,marginBottom:10}}>
-                          <span style={{background:GG_BLUE,color:"#fff",borderRadius:4,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{i+1}</span>
-                          <span style={{fontSize:14,color:"#cbd5e1",lineHeight:1.6}}>{a}</span>
+                          <span style={{background:"#2563eb",color:"#fff",borderRadius:4,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{i+1}</span>
+                          <span style={{fontSize:13,color:"#374151",lineHeight:1.6}}>{a}</span>
                         </div>
                       ))}
                     </div>
@@ -911,7 +932,7 @@ function App() {
 
                     return (
                       <div style={{marginTop:14}}>
-                        <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:10}}>👥 MANAGER ROLLUP</div>
+                        <div style={{fontWeight:700,fontSize:11,color:"#6b7280",letterSpacing:0.8,textTransform:"uppercase",marginBottom:10}}>👥 MANAGER ROLLUP</div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
                           {Object.entries(MANAGER_TEAMS).map(([mgr, reps]) => {
                             const team = reps.map(n => repMap[n]).filter(Boolean);
@@ -925,17 +946,17 @@ function App() {
                             const pdRate     = hasPD ? team.reduce((s,r) => s + r.pd_count, 0) / totalOpps * 100 : null;
                             const sorted     = [...team].sort((a,b) => a.hygiene_score - b.hygiene_score);
                             return (
-                              <div key={mgr} style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:18}}>
+                              <div key={mgr} style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:18,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
                                 {/* Manager header */}
-                                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${GG_BORDER}`}}>
+                                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14,paddingBottom:12,borderBottom:"1px solid #f3f4f6"}}>
                                   <ScoreDisplay score={avgScore} size={58}/>
                                   <div style={{flex:1}}>
-                                    <div style={{fontWeight:700,fontSize:15,marginBottom:3}}>{mgr}</div>
+                                    <div style={{fontWeight:700,fontSize:15,color:"#111827",marginBottom:3}}>{mgr}</div>
                                     <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:13}}>
                                       <span style={{color:"#60a5fa",fontWeight:600}}>{fmt(totalArr)}</span>
-                                      <span style={{color:"#64748b"}}>{totalOpps} opps</span>
+                                      <span style={{color:"#6b7280"}}>{totalOpps} opps</span>
                                       <span style={{color:"#fca5a5"}}>🔴 {totalCrit}</span>
-                                      <span style={{color:"#fcd34d"}}>🟡 {totalWarn}</span>
+                                      <span style={{color:"#92400e"}}>🟡 {totalWarn}</span>
                                       <span style={{color:"#86efac"}}>🟢 {totalClean}</span>
                                       {pdRate!==null && <span style={{color:"#a78bfa"}}>PD {pct(pdRate)}</span>}
                                     </div>
@@ -943,24 +964,24 @@ function App() {
                                 </div>
                                 {/* Rep rows */}
                                 {sorted.map((rep,i) => {
-                                  const sc = rep.hygiene_score>=75?"#86efac":rep.hygiene_score>=50?"#fcd34d":"#fca5a5";
+                                  const sc = rep.hygiene_score>=75?"#16a34a":rep.hygiene_score>=50?"#b45309":"#dc2626";
                                   return (
                                     <div key={i} style={{marginBottom: i<sorted.length-1?10:0}}>
                                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                                         <span style={{color:sc,fontWeight:800,fontSize:13,width:28,flexShrink:0,textAlign:"right"}}>{rep.hygiene_score}</span>
-                                        <span style={{fontSize:13,fontWeight:600,color:"#cbd5e1",flex:1}}>{rep.rep_name}</span>
-                                        <span style={{color:"#475569",fontSize:12}}>{fmt(rep.total_value)}</span>
+                                        <span style={{fontSize:13,fontWeight:600,color:"#111827",flex:1}}>{rep.rep_name}</span>
+                                        <span style={{color:"#6b7280",fontSize:12}}>{fmt(rep.total_value)}</span>
                                         <span style={{color:"#fca5a5",fontSize:12,width:36,textAlign:"right"}}>🔴{rep.critical_flags}</span>
-                                        <span style={{color:"#fcd34d",fontSize:12,width:36,textAlign:"right"}}>🟡{rep.warning_flags}</span>
+                                        <span style={{color:"#f59e0b",fontSize:12,width:36,textAlign:"right"}}>🟡{rep.warning_flags}</span>
                                         {pdRate!==null && <span style={{color:"#a78bfa",fontSize:12,width:40,textAlign:"right"}}>{pct(rep.pd_rate)}</span>}
                                       </div>
                                       {/* Hygiene score bar — 0 to 100 scale */}
                                       <div style={{display:"flex",alignItems:"center",gap:6}}>
                                         <div style={{width:28,flexShrink:0}}/>
-                                        <div style={{flex:1,height:3,background:"#1e2d4a",borderRadius:2,overflow:"hidden"}}>
+                                        <div style={{flex:1,height:3,background:"#e5e7eb",borderRadius:2,overflow:"hidden"}}>
                                           <div style={{width:`${rep.hygiene_score}%`,height:"100%",borderRadius:2,background:sc}}/>
                                         </div>
-                                        <span style={{color:"#334155",fontSize:11,width:52,textAlign:"right"}}>{rep.total_opps} opps</span>
+                                        <span style={{color:"#9ca3af",fontSize:11,width:52,textAlign:"right"}}>{rep.total_opps} opps</span>
                                       </div>
                                     </div>
                                   );
@@ -1005,13 +1026,13 @@ function App() {
 
                     return (
                       <div style={{marginTop:14}}>
-                        <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:10}}>🏢 SEGMENT ROLLUP</div>
+                        <div style={{fontWeight:700,fontSize:11,color:"#6b7280",letterSpacing:0.8,textTransform:"uppercase",marginBottom:10}}>🏢 SEGMENT ROLLUP</div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
                           {segData.map(({seg, team, totalOpps, totalArr, totalCrit, totalWarn, totalClean, avgScore, critPct, cleanPct, pdRate, sorted}) => {
                             const segColor = seg === "Foundation" ? "#34d399" : "#818cf8";
                             return (
-                              <div key={seg} style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:18}}>
-                                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${GG_BORDER}`}}>
+                              <div key={seg} style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:18,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+                                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14,paddingBottom:12,borderBottom:"1px solid #f3f4f6"}}>
                                   <ScoreDisplay score={avgScore} size={58}/>
                                   <div style={{flex:1}}>
                                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
@@ -1020,32 +1041,32 @@ function App() {
                                     </div>
                                     <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:13}}>
                                       <span style={{color:"#60a5fa",fontWeight:600}}>{fmt(totalArr)}</span>
-                                      <span style={{color:"#64748b"}}>{totalOpps} opps</span>
+                                      <span style={{color:"#6b7280"}}>{totalOpps} opps</span>
                                       <span style={{color:"#fca5a5"}}>🔴 {totalCrit} ({critPct}%)</span>
-                                      <span style={{color:"#fcd34d"}}>🟡 {totalWarn}</span>
+                                      <span style={{color:"#92400e"}}>🟡 {totalWarn}</span>
                                       <span style={{color:"#86efac"}}>🟢 {cleanPct}% clean</span>
                                       {pdRate!==null && <span style={{color:"#a78bfa"}}>PD {pct(pdRate)}</span>}
                                     </div>
                                   </div>
                                 </div>
                                 {sorted.map((rep, i) => {
-                                  const sc = rep.hygiene_score>=75?"#86efac":rep.hygiene_score>=50?"#fcd34d":"#fca5a5";
+                                  const sc = rep.hygiene_score>=75?"#16a34a":rep.hygiene_score>=50?"#b45309":"#dc2626";
                                   return (
                                     <div key={i} style={{marginBottom: i<sorted.length-1?10:0}}>
                                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                                         <span style={{color:sc,fontWeight:800,fontSize:13,width:28,flexShrink:0,textAlign:"right"}}>{rep.hygiene_score}</span>
-                                        <span style={{fontSize:13,fontWeight:600,color:"#cbd5e1",flex:1}}>{rep.rep_name}</span>
-                                        <span style={{color:"#475569",fontSize:12}}>{fmt(rep.total_value)}</span>
+                                        <span style={{fontSize:13,fontWeight:600,color:"#111827",flex:1}}>{rep.rep_name}</span>
+                                        <span style={{color:"#6b7280",fontSize:12}}>{fmt(rep.total_value)}</span>
                                         <span style={{color:"#fca5a5",fontSize:12,width:36,textAlign:"right"}}>🔴{rep.critical_flags}</span>
-                                        <span style={{color:"#fcd34d",fontSize:12,width:36,textAlign:"right"}}>🟡{rep.warning_flags}</span>
+                                        <span style={{color:"#f59e0b",fontSize:12,width:36,textAlign:"right"}}>🟡{rep.warning_flags}</span>
                                         {pdRate!==null && <span style={{color:"#a78bfa",fontSize:12,width:40,textAlign:"right"}}>{pct(rep.pd_rate)}</span>}
                                       </div>
                                       <div style={{display:"flex",alignItems:"center",gap:6}}>
                                         <div style={{width:28,flexShrink:0}}/>
-                                        <div style={{flex:1,height:3,background:"#1e2d4a",borderRadius:2,overflow:"hidden"}}>
+                                        <div style={{flex:1,height:3,background:"#e5e7eb",borderRadius:2,overflow:"hidden"}}>
                                           <div style={{width:`${rep.hygiene_score}%`,height:"100%",borderRadius:2,background:sc}}/>
                                         </div>
-                                        <span style={{color:"#334155",fontSize:11,width:52,textAlign:"right"}}>{rep.total_opps} opps</span>
+                                        <span style={{color:"#9ca3af",fontSize:11,width:52,textAlign:"right"}}>{rep.total_opps} opps</span>
                                       </div>
                                     </div>
                                   );
@@ -1054,9 +1075,9 @@ function App() {
                             );
                           })}
                         </div>
-                        <div style={{background:"#080d1a",border:`1px solid ${GG_BORDER}`,borderRadius:8,padding:"10px 16px",marginTop:10,display:"flex",gap:10,alignItems:"flex-start"}}>
-                          <span style={{color:"#475569",fontSize:13,flexShrink:0}}>💡</span>
-                          <span style={{color:"#64748b",fontSize:12,lineHeight:1.6}}>{insight}</span>
+                        <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 16px",marginTop:10,display:"flex",gap:10,alignItems:"flex-start"}}>
+                          <span style={{color:"#6b7280",fontSize:13,flexShrink:0}}>💡</span>
+                          <span style={{color:"#4b5563",fontSize:12,lineHeight:1.6}}>{insight}</span>
                         </div>
                       </div>
                     );
@@ -1070,19 +1091,19 @@ function App() {
             {activeTab==="reps" && (
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 {(results.rep_summaries||[]).sort((a,b)=>a.hygiene_score-b.hygiene_score).map((rep,i)=>(
-                  <div key={i} style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:18}}>
+                  <div key={i} style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:18,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
                     <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:rep.top_issues?.length?12:0}}>
                       <ScoreDisplay score={rep.hygiene_score} size={62}/>
                       <div style={{flex:1}}>
                         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                          <span style={{fontWeight:700,fontSize:16}}>{rep.rep_name}</span>
-                          <span style={{background:"#0066ff22",color:"#60a5fa",border:"1px solid #0066ff33",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:600}}>{rep.segment}</span>
+                          <span style={{fontWeight:700,fontSize:15,color:"#111827"}}>{rep.rep_name}</span>
+                          <span style={{background:"#eff6ff",color:"#2563eb",border:"1px solid #bfdbfe",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:600}}>{rep.segment}</span>
                         </div>
                         <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"center"}}>
-                          <span style={{color:"#64748b",fontSize:13}}>{rep.total_opps} opps</span>
-                          <span style={{color:"#60a5fa",fontSize:13,fontWeight:600}}>{fmt(rep.total_value)}</span>
+                          <span style={{color:"#6b7280",fontSize:13}}>{rep.total_opps} opps</span>
+                          <span style={{color:"#2563eb",fontSize:13,fontWeight:600}}>{fmt(rep.total_value)}</span>
                           <span style={{color:"#fca5a5",fontSize:13}}>🔴 {rep.critical_flags}</span>
-                          <span style={{color:"#fcd34d",fontSize:13}}>🟡 {rep.warning_flags}</span>
+                          <span style={{color:"#f59e0b",fontSize:13}}>🟡 {rep.warning_flags}</span>
                           <span style={{color:"#86efac",fontSize:13}}>🟢 {rep.clean_opps}</span>
                           {hasPD && <span style={{color:"#a78bfa",fontSize:13}}>PD {pct(rep.pd_rate)} ({rep.pd_count} opps)</span>}
                         </div>
@@ -1092,7 +1113,7 @@ function App() {
                       <div style={{borderTop:`1px solid ${GG_BORDER}`,paddingTop:10}}>
                         <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                           {rep.top_issues.map((issue,j)=>(
-                            <span key={j} style={{background:"#dc262611",color:"#fca5a5",border:"1px solid #dc262622",padding:"3px 10px",borderRadius:4,fontSize:12}}>{issue}</span>
+                            <span key={j} style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fecaca",padding:"3px 10px",borderRadius:4,fontSize:12}}>{issue}</span>
                           ))}
                         </div>
                       </div>
@@ -1164,25 +1185,25 @@ function App() {
               };
 
               const OppCard = ({ o }) => (
-                <div style={{background:"#080d1a",border:`1px solid ${GG_BORDER}`,borderRadius:8,padding:"12px 15px",marginBottom:8}}>
+                <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"12px 15px",marginBottom:8}}>
                   <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:8,flexWrap:"wrap"}}>
-                    <span style={{fontWeight:700,fontSize:14,color:"#e2e8f0"}}>{o.opp_name}</span>
-                    {o.account && o.account!==o.opp_name && <span style={{color:"#475569",fontSize:12}}>· {o.account}</span>}
-                    <span style={{color:"#475569",fontSize:12,marginLeft:"auto",whiteSpace:"nowrap"}}>
+                    <span style={{fontWeight:700,fontSize:14,color:"#111827"}}>{o.opp_name}</span>
+                    {o.account && o.account!==o.opp_name && <span style={{color:"#6b7280",fontSize:12}}>· {o.account}</span>}
+                    <span style={{color:"#6b7280",fontSize:12,marginLeft:"auto",whiteSpace:"nowrap"}}>
                       {o.stage} · {fmt(o.nbArr)} · {o.age}d old{o.closeStr?` · close ${o.closeStr}`:""}
                     </span>
                   </div>
                   <div style={{marginBottom:8}}>
                     {o.flags.map((f,fi) => (
                       <div key={fi} style={{display:"flex",gap:7,marginBottom:3}}>
-                        <span style={{color:"#94a3b8",flexShrink:0,fontSize:12}}>⚑</span>
-                        <span style={{fontSize:12,color:"#94a3b8",lineHeight:1.5}}>{f}</span>
+                        <span style={{color:"#6b7280",flexShrink:0,fontSize:12}}>⚑</span>
+                        <span style={{fontSize:12,color:"#6b7280",lineHeight:1.5}}>{f}</span>
                       </div>
                     ))}
                   </div>
-                  <div style={{background:"#0066ff0d",border:"1px solid #0066ff1a",borderRadius:6,padding:"7px 11px",display:"flex",gap:8}}>
-                    <span style={{color:"#60a5fa",fontWeight:700,fontSize:11,whiteSpace:"nowrap",marginTop:1}}>→ ACTION:</span>
-                    <span style={{fontSize:12,color:"#cbd5e1",lineHeight:1.5}}>{o.recommended_action}</span>
+                  <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:6,padding:"7px 11px",display:"flex",gap:8}}>
+                    <span style={{color:"#2563eb",fontWeight:700,fontSize:11,whiteSpace:"nowrap",marginTop:1}}>→ ACTION:</span>
+                    <span style={{fontSize:12,color:"#374151",lineHeight:1.5}}>{o.recommended_action}</span>
                   </div>
                 </div>
               );
@@ -1191,7 +1212,7 @@ function App() {
                 <div style={{display:"flex",gap:14}}>
                   {/* Sidebar */}
                   <div style={{width:195,flexShrink:0}}>
-                    <div style={{fontWeight:700,fontSize:11,color:"#64748b",letterSpacing:0.8,marginBottom:8,textTransform:"uppercase"}}>Select Rep</div>
+                    <div style={{fontWeight:700,fontSize:11,color:"#6b7280",letterSpacing:0.8,marginBottom:8,textTransform:"uppercase"}}>Select Rep</div>
                     {repNames.map(name => {
                       const d = coaching[name];
                       const all = Object.values(d.categories).flat().reduce((acc,o)=>{if(!acc.find(x=>x.opp_name===o.opp_name))acc.push(o);return acc;},[]);
@@ -1200,13 +1221,13 @@ function App() {
                       return (
                         <button key={name} onClick={()=>setSelectedRep(name)}
                           style={{width:"100%",textAlign:"left",padding:"9px 12px",marginBottom:4,borderRadius:8,cursor:"pointer",
-                            background:activeRep===name?"#0066ff22":GG_PANEL,
-                            border:`1px solid ${activeRep===name?GG_BLUE:GG_BORDER}`,
-                            color:activeRep===name?"#e2e8f0":"#94a3b8"}}>
+                            background:activeRep===name?"#eff6ff":"#ffffff",
+                            border:`1px solid ${activeRep===name?"#2563eb":"#e5e7eb"}`,
+                            color:activeRep===name?"#111827":"#374151"}}>
                           <div style={{fontWeight:600,fontSize:13,marginBottom:3}}>{name}</div>
                           <div style={{display:"flex",gap:8,fontSize:11}}>
                             {crit>0 && <span style={{color:"#fca5a5"}}>🔴 {crit} critical</span>}
-                            {warn>0 && <span style={{color:"#fcd34d"}}>🟡 {warn} warning</span>}
+                            {warn>0 && <span style={{color:"#92400e"}}>🟡 {warn} warning</span>}
                           </div>
                         </button>
                       );
@@ -1217,21 +1238,21 @@ function App() {
                   {repData && (
                     <div style={{flex:1,minWidth:0}}>
                       {/* Header */}
-                      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:"13px 18px"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:"13px 18px",boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
                         <div style={{flex:1}}>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
-                            <span style={{fontWeight:700,fontSize:17}}>{activeRep}</span>
-                            <span style={{background:"#0066ff22",color:"#60a5fa",border:"1px solid #0066ff33",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:600}}>{repData.segment}</span>
+                            <span style={{fontWeight:700,fontSize:17,color:"#111827"}}>{activeRep}</span>
+                            <span style={{background:"#eff6ff",color:"#2563eb",border:"1px solid #bfdbfe",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:600}}>{repData.segment}</span>
                           </div>
-                          <div style={{color:"#64748b",fontSize:13}}>
+                          <div style={{color:"#6b7280",fontSize:13}}>
                             {criticalOpps.length>0 && <span style={{color:"#fca5a5",marginRight:12}}>🔴 {criticalOpps.length} critical</span>}
-                            {warningOpps.length>0  && <span style={{color:"#fcd34d"}}>🟡 {warningOpps.length} warning</span>}
+                            {warningOpps.length>0  && <span style={{color:"#92400e"}}>🟡 {warningOpps.length} warning</span>}
                           </div>
                         </div>
                         <button onClick={()=>handleCopy(activeRep)}
-                          style={{padding:"8px 16px",background:copied===activeRep?"#16a34a22":"#0066ff22",
-                            border:`1px solid ${copied===activeRep?"#16a34a44":"#0066ff44"}`,
-                            color:copied===activeRep?"#86efac":"#60a5fa",
+                          style={{padding:"8px 16px",background:copied===activeRep?"#f0fdf4":"#eff6ff",
+                            border:`1px solid ${copied===activeRep?"#86efac":"#bfdbfe"}`,
+                            color:copied===activeRep?"#16a34a":"#2563eb",
                             borderRadius:7,cursor:"pointer",fontSize:13,fontWeight:600,whiteSpace:"nowrap",transition:"all 0.2s"}}>
                           {copied===activeRep?"✓ Copied!":"📋 Copy for Slack / Email"}
                         </button>
@@ -1242,8 +1263,8 @@ function App() {
                         <div style={{marginBottom:18}}>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
                             <span style={{color:"#dc2626",fontWeight:700,fontSize:13}}>🔴 CRITICAL</span>
-                            <span style={{background:"#dc262622",color:"#fca5a5",border:"1px solid #dc262633",padding:"1px 8px",borderRadius:4,fontSize:11,fontWeight:700}}>{criticalOpps.length} deal{criticalOpps.length!==1?"s":""}</span>
-                            <span style={{color:"#475569",fontSize:12}}>— requires immediate action</span>
+                            <span style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fecaca",padding:"1px 8px",borderRadius:4,fontSize:11,fontWeight:700}}>{criticalOpps.length} deal{criticalOpps.length!==1?"s":""}</span>
+                            <span style={{color:"#9ca3af",fontSize:12}}>— requires immediate action</span>
                           </div>
                           {criticalOpps.map((o,i) => <OppCard key={i} o={o}/>)}
                         </div>
@@ -1253,9 +1274,9 @@ function App() {
                       {warningOpps.length > 0 && (
                         <div>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                            <span style={{color:"#d97706",fontWeight:700,fontSize:13}}>🟡 WARNING</span>
-                            <span style={{background:"#d9770622",color:"#fcd34d",border:"1px solid #d9770633",padding:"1px 8px",borderRadius:4,fontSize:11,fontWeight:700}}>{warningOpps.length} deal{warningOpps.length!==1?"s":""}</span>
-                            <span style={{color:"#475569",fontSize:12}}>— address this week</span>
+                            <span style={{color:"#b45309",fontWeight:700,fontSize:13}}>🟡 WARNING</span>
+                            <span style={{background:"#fefce8",color:"#92400e",border:"1px solid #fde68a",padding:"1px 8px",borderRadius:4,fontSize:11,fontWeight:700}}>{warningOpps.length} deal{warningOpps.length!==1?"s":""}</span>
+                            <span style={{color:"#9ca3af",fontSize:12}}>— address this week</span>
                           </div>
                           {warningOpps.map((o,i) => <OppCard key={i} o={o}/>)}
                         </div>
@@ -1281,7 +1302,7 @@ function App() {
                       </button>
                     );
                   })}
-                  <span style={{marginLeft:"auto",color:"#334155",fontSize:12}}>Sorted by severity · click to expand</span>
+                  <span style={{marginLeft:"auto",color:"#9ca3af",fontSize:12}}>Sorted by severity · click to expand</span>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:5}}>
                   {filteredDeals.map((deal,i)=>{
@@ -1293,29 +1314,29 @@ function App() {
                           <Badge severity={deal.severity}/>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontWeight:700,fontSize:13,marginBottom:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{deal.opp_name}</div>
-                            <div style={{color:"#64748b",fontSize:12}}>
+                            <div style={{color:"#6b7280",fontSize:12}}>
                               {deal.rep_name}{deal.account_name?` · ${deal.account_name}`:""} · {deal.stage} · {fmt(deal.value)} · {deal.age_days}d{deal.close_date?` · Close: ${deal.close_date}`:""}
                               {deal.pd_amt>0 && <span style={{color:"#a78bfa",marginLeft:6}}>PD {fmt(deal.pd_amt)}</span>}
                             </div>
                           </div>
-                          <span style={{color:"#334155",fontSize:12,flexShrink:0}}>{isOpen?"▲":"▼"}</span>
+                          <span style={{color:"#9ca3af",fontSize:12,flexShrink:0}}>{isOpen?"▲":"▼"}</span>
                         </div>
                         {isOpen && (
                           <div style={{borderTop:`1px solid ${c.border}22`,padding:"12px 15px"}}>
                             {deal.flags?.length>0 && (
                               <div style={{marginBottom:10}}>
-                                <div style={{color:"#64748b",fontSize:11,fontWeight:700,letterSpacing:0.8,marginBottom:6}}>FLAGS</div>
+                                <div style={{color:"#6b7280",fontSize:11,fontWeight:700,letterSpacing:0.8,marginBottom:6}}>FLAGS</div>
                                 {deal.flags.map((f,j)=>(
                                   <div key={j} style={{display:"flex",gap:8,marginBottom:5}}>
                                     <span style={{color:c.text,flexShrink:0}}>⚑</span>
-                                    <span style={{fontSize:13,color:"#cbd5e1"}}>{f}</span>
+                                    <span style={{fontSize:13,color:"#374151"}}>{f}</span>
                                   </div>
                                 ))}
                               </div>
                             )}
                             <div style={{background:"#0066ff0d",border:"1px solid #0066ff22",borderRadius:6,padding:"9px 13px"}}>
                               <span style={{color:"#60a5fa",fontWeight:700,fontSize:11,marginRight:8}}>RECOMMENDED ACTION:</span>
-                              <span style={{color:"#cbd5e1",fontSize:13}}>{deal.recommended_action}</span>
+                              <span style={{color:"#374151",fontSize:13}}>{deal.recommended_action}</span>
                             </div>
                           </div>
                         )}
@@ -1339,16 +1360,16 @@ function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
                   {/* By Segment */}
                   <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:20}}>
-                    <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>BY SEGMENT</div>
+                    <div style={{fontWeight:700,fontSize:12,color:"#6b7280",letterSpacing:0.8,marginBottom:14}}>BY SEGMENT</div>
                     {pdData.bySegment.map((s,i)=>(
                       <div key={i} style={{marginBottom:12}}>
                         <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                          <span style={{fontSize:13,color:"#cbd5e1",fontWeight:600}}>{s.label}</span>
+                          <span style={{fontSize:13,color:"#374151",fontWeight:600}}>{s.label}</span>
                           <span style={{fontSize:13,color:"#a78bfa",fontWeight:700}}>{pct(s.rate)}</span>
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:10}}>
                           <RateBar rate={s.rate} color="#a78bfa"/>
-                          <span style={{color:"#475569",fontSize:12,whiteSpace:"nowrap"}}>{s.pdCount}/{s.total} · avg {fmt(s.avgPD)}</span>
+                          <span style={{color:"#6b7280",fontSize:12,whiteSpace:"nowrap"}}>{s.pdCount}/{s.total} · avg {fmt(s.avgPD)}</span>
                         </div>
                       </div>
                     ))}
@@ -1356,16 +1377,16 @@ function App() {
 
                   {/* By Channel */}
                   <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:20}}>
-                    <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>BY CHANNEL</div>
+                    <div style={{fontWeight:700,fontSize:12,color:"#6b7280",letterSpacing:0.8,marginBottom:14}}>BY CHANNEL</div>
                     {pdData.byChannel.map((c,i)=>(
                       <div key={i} style={{marginBottom:12}}>
                         <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                          <span style={{fontSize:13,color:"#cbd5e1",fontWeight:600}}>{c.label}</span>
+                          <span style={{fontSize:13,color:"#374151",fontWeight:600}}>{c.label}</span>
                           <span style={{fontSize:13,color:"#a78bfa",fontWeight:700}}>{pct(c.rate)}</span>
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:10}}>
                           <RateBar rate={c.rate} color="#7c3aed"/>
-                          <span style={{color:"#475569",fontSize:12,whiteSpace:"nowrap"}}>{c.pdCount}/{c.total} · avg {fmt(c.avgPD)}</span>
+                          <span style={{color:"#6b7280",fontSize:12,whiteSpace:"nowrap"}}>{c.pdCount}/{c.total} · avg {fmt(c.avgPD)}</span>
                         </div>
                       </div>
                     ))}
@@ -1374,14 +1395,14 @@ function App() {
 
                 {/* By Stage */}
                 <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:20,marginBottom:14}}>
-                  <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>BY STAGE — attach rate should increase as deals progress</div>
+                  <div style={{fontWeight:700,fontSize:12,color:"#6b7280",letterSpacing:0.8,marginBottom:14}}>BY STAGE — attach rate should increase as deals progress</div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12}}>
                     {pdData.byStage.map((s,i)=>(
-                      <div key={i} style={{background:"#080d1a",border:`1px solid ${GG_BORDER}`,borderRadius:8,padding:"12px 16px"}}>
-                        <div style={{color:"#64748b",fontSize:11,fontWeight:700,letterSpacing:0.8,marginBottom:6}}>{s.label.toUpperCase()}</div>
+                      <div key={i} style={{background:"#f9fafb",border:`1px solid ${GG_BORDER}`,borderRadius:8,padding:"12px 16px"}}>
+                        <div style={{color:"#6b7280",fontSize:11,fontWeight:700,letterSpacing:0.8,marginBottom:6}}>{s.label.toUpperCase()}</div>
                         <div style={{color:"#a78bfa",fontSize:22,fontWeight:800,fontFamily:"monospace",marginBottom:4}}>{pct(s.rate)}</div>
-                        <div style={{color:"#475569",fontSize:12}}>{s.pdCount}/{s.total} opps</div>
-                        {s.avgPD>0 && <div style={{color:"#475569",fontSize:12}}>avg {fmt(s.avgPD)}</div>}
+                        <div style={{color:"#6b7280",fontSize:12}}>{s.pdCount}/{s.total} opps</div>
+                        {s.avgPD>0 && <div style={{color:"#6b7280",fontSize:12}}>avg {fmt(s.avgPD)}</div>}
                       </div>
                     ))}
                   </div>
@@ -1389,20 +1410,20 @@ function App() {
 
                 {/* By Rep */}
                 <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:20}}>
-                  <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>BY REP — sorted highest to lowest attach rate</div>
+                  <div style={{fontWeight:700,fontSize:12,color:"#6b7280",letterSpacing:0.8,marginBottom:14}}>BY REP — sorted highest to lowest attach rate</div>
                   {pdData.byRep.map((rep,i)=>{
-                    const rateColor = rep.rate >= 60 ? "#16a34a" : rep.rate >= 40 ? "#d97706" : "#dc2626";
+                    const rateColor = rep.rate >= 60 ? "#16a34a" : rep.rate >= 40 ? "#b45309" : "#dc2626";
                     return (
-                      <div key={i} style={{display:"flex",alignItems:"center",gap:12,marginBottom:10,padding:"10px 14px",background:"#080d1a",borderRadius:8}}>
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:12,marginBottom:10,padding:"10px 14px",background:"#f9fafb",borderRadius:8}}>
                         <div style={{width:44,textAlign:"right",color:rateColor,fontWeight:800,fontSize:14,fontFamily:"monospace",flexShrink:0}}>{pct(rep.rate)}</div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                            <span style={{fontWeight:600,fontSize:14,color:"#cbd5e1"}}>{rep.rep}</span>
+                            <span style={{fontWeight:600,fontSize:14,color:"#374151"}}>{rep.rep}</span>
                             <span style={{background:"#0066ff22",color:"#60a5fa",fontSize:10,padding:"1px 6px",borderRadius:3,fontWeight:600}}>{rep.segment}</span>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:10}}>
                             <RateBar rate={rep.rate} color={rateColor}/>
-                            <span style={{color:"#475569",fontSize:12,whiteSpace:"nowrap"}}>{rep.pdCount}/{rep.total} · avg {fmt(rep.avgPD)} · NB {fmt(rep.arr)}</span>
+                            <span style={{color:"#6b7280",fontSize:12,whiteSpace:"nowrap"}}>{rep.pdCount}/{rep.total} · avg {fmt(rep.avgPD)} · NB {fmt(rep.arr)}</span>
                           </div>
                         </div>
                       </div>
@@ -1423,14 +1444,14 @@ function App() {
                   {title:"Close Date Red Flags",icon:"🚩",items:["MM/Ent opp in Discovery or Qualified + close < 30 days","Close date already passed","Stage Duration far exceeding age norms"]},
                   {title:"What This App Evaluates",icon:"🔬",items:["Age vs. stage (Age field)","Stage Duration for stagnation","New Business ARR vs. $2K minimum","Next Step + date presence at Qualified/Defined/Negotiation","Proof of life via Last Activity + Next Steps Date","Primary Quote Status field","PD ($) attach rate by rep, segment, channel, and stage"]},
                 ].map((s,i)=>(
-                  <div key={i} style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:18}}>
-                    <div style={{fontWeight:700,fontSize:13,marginBottom:12,display:"flex",gap:8,color:"#94a3b8"}}>
+                  <div key={i} style={{background:"#ffffff",border:"1px solid #e5e7eb",borderRadius:8,padding:18,boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+                    <div style={{fontWeight:700,fontSize:13,marginBottom:12,display:"flex",gap:8,color:"#6b7280"}}>
                       <span>{s.icon}</span><span>{s.title}</span>
                     </div>
                     {s.items.map((item,j)=>(
                       <div key={j} style={{display:"flex",gap:8,marginBottom:6}}>
-                        <span style={{color:GG_BLUE,flexShrink:0}}>›</span>
-                        <span style={{fontSize:13,color:"#94a3b8",lineHeight:1.5}}>{item}</span>
+                        <span style={{color:"#2563eb",flexShrink:0}}>›</span>
+                        <span style={{fontSize:13,color:"#6b7280",lineHeight:1.5}}>{item}</span>
                       </div>
                     ))}
                   </div>
