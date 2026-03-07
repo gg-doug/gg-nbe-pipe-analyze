@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pipeline Hygiene Analyzer · GoGuardian</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #05080f; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0d1424; }
+    ::-webkit-scrollbar-thumb { background: #1e2d4a; border-radius: 3px; }
+    details summary::-webkit-details-marker { display: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useCallback } = React;
+    const Papa = window.Papa;
+
+
+// ─── Access control (SHA-256 of PIN — not the PIN itself) ─────────────────────
+const ACCESS_HASH = "742c8a78fc500ba47cd49f46f7f4c68facba94a1543ea0fba21ec2ad9a2c3da2";
+
+async function hashPin(pin) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
+
+// ─── Exact column names from the Salesforce report ───────────────────────────
+const COL_MAP_ALIASES = {
+  opp_name:          ["Opportunity Name", "Name", "Opp Name"],
+  rep_name:          ["Opportunity Owner", "Owner", "Owner Full Name", "Rep Name"],
+  account_name:      ["Account Name", "Account", "Company"],
+  stage:             ["Stage", "Opportunity Stage", "Sales Stage"],
+  amount:            ["Total ARR", "New Business ARR", "Amount", "ARR", "Annual Amount"],
+  nb_arr:            ["New Business ARR", "NB ARR"],
+  total_arr:         ["Total ARR", "Total Growth ARR"],
+  close_date:        ["Close Date", "Expected Close Date"],
+  created_date:      ["Created Date", "Creation Date"],
+  age:               ["Age"],
+  stage_duration:    ["Stage Duration"],
+  next_step:         ["Next Step", "Next Steps"],
+  next_steps_date:   ["Next Steps Date", "Next Step Date", "Next Activity Date"],
+  next_steps_update: ["Next Steps Update", "Next Step Update", "Activity Log", "Description", "Notes"],
+  last_activity:     ["Last Activity", "Last Activity Date", "Last Activity Date/Time"],
+  primary_quote:     ["Primary Quote Status", "Has Quote", "Primary Quote", "Quote Status"],
+  owner_role:        ["Owner Role", "Role", "Rep Role"],
+  channel:           ["Channel", "Sales Channel"],
+  partner_account:   ["Partner Account", "Partner"],
+  pd_amount:         ["PD ($)", "PD", "Professional Development", "Professional Services"],
+};
+
+// Manager → rep roster
+const MANAGER_TEAMS = {
+  "Matthew Ortez": ["Will Conway","Sean Kelley","Sheri Vaks","Jena Cooper","Shawn Metzger","Tanner Wilcox"],
+  "Jacob Smith":   ["Julian Bel-Robert","Dana Haddad","LeighAnn Sanocki","Spike Jackson","Susan Casey","Natalie Pottier","Kayla Reckert"],
+};
+
+function resolveCol(headers, aliases) {
+  for (const a of aliases) {
+    const m = headers.find(h => h.trim().toLowerCase() === a.toLowerCase());
+    if (m) return m;
+  }
+  for (const a of aliases) {
+    const word = a.toLowerCase().split(" ")[0];
+    if (word.length > 2) {
+      const m = headers.find(h => h.toLowerCase().startsWith(word));
+      if (m) return m;
+    }
+  }
+  return null;
+}
+
+function buildColumnMap(headers) {
+  const map = {};
+  for (const [key, aliases] of Object.entries(COL_MAP_ALIASES)) {
+    map[key] = resolveCol(headers, aliases);
+  }
+  return map;
+}
+
+function getVal(row, colMap, key) {
+  const col = colMap[key];
+  return col ? (row[col] || "") : "";
+}
+
+function parseNum(s) {
+  if (!s) return 0;
+  const n = parseFloat(String(s).replace(/[$,]/g, ""));
+  return isNaN(n) ? 0 : n;
+}
+
+// Reps whose Salesforce role doesn't reflect their actual segment
+const SEGMENT_OVERRIDES = {
+  "Jena Cooper":  "MM/Ent",
+  "Will Conway":  "Foundation",
+};
+
+function getSegment(ownerRole, repName) {
+  if (repName && SEGMENT_OVERRIDES[repName]) return SEGMENT_OVERRIDES[repName];
+  const r = (ownerRole || "").toLowerCase();
+  if (r.includes("mid-market") || r.includes("enterprise") || r.includes("mm/ent")) return "MM/Ent";
+  if (r.includes("foundation") || r.includes("smb")) return "Foundation";
+  if (r.includes("manager")) return "MM/Ent"; // managers default to MM/Ent
+  return "Unknown";
+}
+
+// ─── Recommended actions ─────────────────────────────────────────────────────
+function getRecommendedAction(flags, stage, age, nbArr, stageDur) {
+  if (!flags.length) return "No action needed — opp appears clean.";
+  const f = flags[0].toLowerCase();
+  if (f.includes("270") || f.includes("must be closed immediately"))
+    return `Close immediately — ${age} days exceeds the 270-day limit. Document outcome.`;
+  if (f.includes("proof of life"))
+    return `Schedule a customer touchpoint within 30 days or close. No recent meeting, trial, or RFP evidence.`;
+  if (f.includes("discovery") && f.includes("days old"))
+    return `Move out of Discovery or close — ${age} days with no stage progression.`;
+  if (f.includes("below $2,000") || f.includes("total arr"))
+    return `Review Total ARR of $${nbArr.toLocaleString()} — below $2K minimum. Confirm district exemption or close.`;
+  if (f.includes("passed"))
+    return `Update close date — it has already passed. Confirm deal status with customer.`;
+  if (f.includes("unrealistic"))
+    return `Push close date to a realistic timeline for ${stage} or document accelerated path.`;
+  if (f.includes("no next step"))
+    return `Add a specific next step with a date — required for ${stage} stage.`;
+  if (f.includes("no primary quote"))
+    return `Generate a quote in Salesforce and mark it as primary — required at all stages.`;
+  if (f.includes("stuck in discovery"))
+    return `${stageDur} days in Discovery — advance stage if qualified or close.`;
+  if (f.includes("no activity"))
+    return `Add notes — activity log is empty. Document last customer interaction.`;
+  if (f.includes("stage for"))
+    return `${stageDur} days in ${stage} without progression — review with rep.`;
+  return `Review flags with rep and update opportunity accordingly.`;
+}
+
+// ─── Core hygiene engine ──────────────────────────────────────────────────────
+function preAnalyze(rows, colMap) {
+  const today = new Date();
+  const results = [];
+
+  for (const row of rows) {
+    const flags = [];
+    const opp_name     = getVal(row, colMap, "opp_name");
+    const rep_name     = getVal(row, colMap, "rep_name");
+    const account      = getVal(row, colMap, "account_name");
+    const stage        = getVal(row, colMap, "stage");
+    const ownerRole    = getVal(row, colMap, "owner_role");
+    const displayArr   = parseNum(getVal(row, colMap, "amount"));  // Total ARR — for display
+    const nbArr        = parseNum(getVal(row, colMap, "nb_arr")) || displayArr; // New Business ARR — for $2K check
+    const totalArr     = displayArr;
+    const closeStr     = getVal(row, colMap, "close_date");
+    const age          = Math.round(parseNum(getVal(row, colMap, "age")));
+    const stageDur     = Math.round(parseNum(getVal(row, colMap, "stage_duration")));
+    const nextStep     = getVal(row, colMap, "next_step").trim();
+    const nextStepDateStr = getVal(row, colMap, "next_steps_date").trim();
+    const activityLog  = getVal(row, colMap, "next_steps_update").trim();
+    const lastActStr   = getVal(row, colMap, "last_activity").trim();
+    const quoteStatus  = getVal(row, colMap, "primary_quote").trim();
+    const pdAmt        = parseNum(getVal(row, colMap, "pd_amount"));
+    const channel      = getVal(row, colMap, "channel").trim();
+
+    const closeDate    = closeStr ? new Date(closeStr) : null;
+    const daysToClose  = closeDate && !isNaN(closeDate) ? Math.round((closeDate - today) / 86400000) : null;
+    const pastClose    = daysToClose !== null && daysToClose < 0;
+
+    const exempt = ["nycdoe","lausd","boces","nyc doe"].some(d => account.toLowerCase().includes(d));
+    const segment = getSegment(ownerRole, rep_name);
+    const isMMEnt = segment === "MM/Ent";
+
+    // Proof of life using dedicated Last Activity + Next Steps Date fields
+    const lastActDate = lastActStr ? new Date(lastActStr) : null;
+    const nextStepDate = nextStepDateStr ? new Date(nextStepDateStr) : null;
+    const lastActDaysAgo = lastActDate && !isNaN(lastActDate) ? Math.round((today - lastActDate) / 86400000) : null;
+    const nextStepDaysAway = nextStepDate && !isNaN(nextStepDate) ? Math.round((nextStepDate - today) / 86400000) : null;
+
+    const hasRecentActivity = lastActDaysAgo !== null && lastActDaysAgo <= 30;
+    const hasFutureStep = nextStepDaysAway !== null && nextStepDaysAway >= 0 && nextStepDaysAway <= 30;
+    const hasProofOfLife = hasRecentActivity || hasFutureStep;
+
+    // Fallback keyword scan
+    const combined = (nextStep + " " + activityLog).toLowerCase();
+    const polKeywords = ["scheduled","meeting","trial","pilot","evaluation","rfp","follow up","demo","followup"];
+    const hasPolKeyword = polKeywords.some(k => combined.includes(k));
+
+    // Quote check: "0" = missing, "1" = present
+    const quoteMissing = quoteStatus === "0" || quoteStatus === "" || quoteStatus.toLowerCase() === "no";
+    const hasQuoteField = !!colMap["primary_quote"];
+
+    // ── Rules ──
+    if (age >= 270) {
+      flags.push(`OPP IS ${age} DAYS OLD — must be closed immediately${isMMEnt ? " (MM/Ent: Director approval required)" : ""}`);
+    } else if (age >= 90) {
+      if (!hasProofOfLife && !hasPolKeyword) {
+        const lastStr = lastActDaysAgo !== null ? `last activity ${lastActDaysAgo}d ago` : "no activity date";
+        const nextStr = nextStepDaysAway !== null ? `next step in ${nextStepDaysAway}d` : "no next step date";
+        flags.push(`${age} days old — no proof of life within ±30 days (${lastStr}, ${nextStr})`);
+      }
+      if (stage === "Discovery") {
+        flags.push(`${age} days old still in Discovery — must advance or close${isMMEnt ? " (Director approval if MM/Ent)" : ""}`);
+      }
+    }
+
+    if (hasQuoteField && quoteMissing) {
+      flags.push(`No primary quote — required for all pipeline stages`);
+    }
+
+    if (displayArr > 0 && displayArr < 2000 && !exempt) {
+      flags.push(`Total ARR $${displayArr.toLocaleString()} is below $2,000 minimum`);
+    }
+
+    if (!nextStep && (stage === "Qualified" || stage === "Defined" || stage === "Negotiation" || stage === "Closing")) {
+      flags.push(`No Next Step defined — required for ${stage} stage`);
+    }
+
+    if (nextStep && !nextStepDateStr && (stage === "Qualified" || stage === "Defined" || stage === "Negotiation")) {
+      flags.push(`Next Step exists but no date scheduled`);
+    }
+
+    if (!activityLog && !lastActStr) {
+      flags.push("No activity log / notes present");
+    }
+
+    if (pastClose) {
+      flags.push(`Close date (${closeStr}) has already passed`);
+    } else if (daysToClose !== null && daysToClose < 30 && (stage === "Discovery" || stage === "Qualified") && isMMEnt) {
+      flags.push(`MM/Ent opp in ${stage} with close date only ${daysToClose} days away — unrealistic`);
+    }
+
+    if (stageDur >= 90 && stage === "Discovery") {
+      flags.push(`Stuck in Discovery for ${stageDur} days`);
+    } else if (stageDur >= 120 && (stage === "Qualified" || stage === "Defined")) {
+      flags.push(`In ${stage} stage for ${stageDur} days without progression`);
+    }
+
+    const critKeywords = ["must be closed","must advance","passed","proof of life","270"];
+    let severity = "clean";
+    if (flags.some(f => critKeywords.some(k => f.toLowerCase().includes(k)))) severity = "critical";
+    else if (flags.length > 0) severity = "warning";
+
+    results.push({
+      opp_name, rep_name, account, stage, ownerRole, segment, channel,
+      nbArr: displayArr, totalArr, age, stageDur, closeStr, daysToClose,
+      lastActDaysAgo, nextStepDaysAway, nextStep: nextStep.slice(0,100),
+      hasActivity: !!(activityLog || lastActStr), hasProofOfLife,
+      quoteMissing: hasQuoteField && quoteMissing,
+      pdAmt, flags, severity,
+      recommended_action: getRecommendedAction(flags, stage, age, nbArr, stageDur),
+    });
+  }
+  return results;
+}
+
+// ─── Flag category — no "Other" allowed ──────────────────────────────────────
+function flagCategory(f) {
+  const fl = f.toLowerCase();
+  if (fl.includes("270") || (fl.includes("days old") && fl.includes("must be closed"))) return "Must Close Immediately (270+ days)";
+  if (fl.includes("proof of life")) return "Missing Proof of Life (90+ days, no recent activity)";
+  if (fl.includes("discovery") && fl.includes("days old")) return "Overdue in Discovery Stage";
+  if (fl.includes("stuck in discovery")) return "Overdue in Discovery Stage";
+  if (fl.includes("below $2,000") || fl.includes("below $2") || fl.includes("total arr")) return "Below $2K Minimum ARR";
+  if (fl.includes("passed")) return "Close Date Has Passed";
+  if (fl.includes("unrealistic")) return "Unrealistic Close Date for Stage";
+  if (fl.includes("no next step") || fl.includes("next step exists but no date")) return "Missing Next Step or Scheduled Date";
+  if (fl.includes("no primary quote") || fl.includes("quote")) return "Missing Primary Quote";
+  if (fl.includes("stage for") || fl.includes("without progression")) return "Stalled in Current Stage";
+  if (fl.includes("no activity log") || fl.includes("no activity")) return "No Activity Log or Notes";
+  if (fl.includes("mm/ent") && fl.includes("close date only")) return "Unrealistic Close Date for MM/Ent";
+  // Describe remaining flags using their actual text, never "Other"
+  return f.length > 60 ? f.slice(0, 57) + "…" : f;
+}
+
+// Priority order for bucketing — opp goes into its worst/most critical category
+const CAT_PRIORITY = [
+  "Must Close Immediately (270+ days)",
+  "Missing Proof of Life (90+ days, no recent activity)",
+  "Close Date Has Passed",
+  "Overdue in Discovery Stage",
+  "Unrealistic Close Date for Stage",
+  "Unrealistic Close Date for MM/Ent",
+  "Stalled in Current Stage",
+  "Missing Primary Quote",
+  "Missing Next Step or Scheduled Date",
+  "Below $2K Minimum ARR",
+  "No Activity Log or Notes",
+];
+
+// ─── Coaching view — each opp appears once, in its worst category ─────────────
+function buildCoachingView(analyzed) {
+  const repMap = {};
+  for (const d of analyzed) {
+    if (d.severity === "clean") continue;
+    if (!repMap[d.rep_name]) repMap[d.rep_name] = { segment: d.segment, categories: {} };
+
+    // Map all flags to categories, pick the highest-priority one as the bucket
+    const flagCats = d.flags.map(f => flagCategory(f));
+    const primaryCat = CAT_PRIORITY.find(c => flagCats.includes(c)) || flagCats[0] || "Flagged";
+
+    if (!repMap[d.rep_name].categories[primaryCat]) repMap[d.rep_name].categories[primaryCat] = [];
+    repMap[d.rep_name].categories[primaryCat].push({
+      opp_name: d.opp_name,
+      account: d.account,
+      stage: d.stage,
+      age: d.age,
+      nbArr: d.nbArr,
+      closeStr: d.closeStr,
+      severity: d.severity,
+      flags: d.flags,                    // all flags for this opp
+      recommended_action: d.recommended_action,
+    });
+  }
+  return repMap;
+}
+
+
+function buildRepSummaries(analyzed) {
+  const repMap = {};
+  for (const d of analyzed) {
+    if (!repMap[d.rep_name]) repMap[d.rep_name] = { opps:[], critical:0, warning:0, clean:0, value:0, segment:d.segment, pdCount:0, pdVal:0 };
+    const r = repMap[d.rep_name];
+    r.opps.push(d); r.value += d.nbArr;
+    if (d.pdAmt > 0) { r.pdCount++; r.pdVal += d.pdAmt; }
+    if (d.severity==="critical") r.critical++;
+    else if (d.severity==="warning") r.warning++;
+    else r.clean++;
+  }
+  return Object.entries(repMap).map(([name, r]) => {
+    const score = Math.round(((r.clean + r.warning * 0.5) / r.opps.length) * 100);
+    const issueCounts = {};
+    for (const f of r.opps.flatMap(o => o.flags)) {
+      const key = flagCategory(f);
+      issueCounts[key] = (issueCounts[key] || 0) + 1;
+    }
+    const top_issues = Object.entries(issueCounts).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([l,c])=>`${l} (${c})`);
+    return {
+      rep_name: name, total_opps: r.opps.length, total_value: r.value,
+      hygiene_score: score, critical_flags: r.critical, warning_flags: r.warning,
+      clean_opps: r.clean, top_issues, segment: r.segment,
+      pd_count: r.pdCount, pd_rate: r.opps.length ? r.pdCount/r.opps.length*100 : 0,
+      pd_avg: r.pdCount ? r.pdVal/r.pdCount : 0, pd_total: r.pdVal,
+    };
+  });
+}
+
+// ─── PD Analysis ──────────────────────────────────────────────────────────────
+function buildPDAnalysis(analyzed) {
+  const total = analyzed.length;
+  const withPD = analyzed.filter(d => d.pdAmt > 0);
+  const totalPD = withPD.reduce((s,d) => s+d.pdAmt, 0);
+  const totalARR = analyzed.reduce((s,d) => s+d.nbArr, 0);
+  const attachRate = total ? withPD.length/total*100 : 0;
+  const avgPD = withPD.length ? totalPD/withPD.length : 0;
+  const pdPctARR = totalARR ? totalPD/totalARR*100 : 0;
+
+  // By segment
+  const segMap = {};
+  for (const d of analyzed) {
+    const seg = d.segment || "Unknown";
+    if (!segMap[seg]) segMap[seg] = { total:0, pd:0, pdVal:0, arr:0 };
+    segMap[seg].total++; segMap[seg].arr += d.nbArr;
+    if (d.pdAmt > 0) { segMap[seg].pd++; segMap[seg].pdVal += d.pdAmt; }
+  }
+  const bySegment = Object.entries(segMap).map(([seg,s]) => ({
+    label: seg, total: s.total, pdCount: s.pd, arr: s.arr, pdVal: s.pdVal,
+    rate: s.total ? s.pd/s.total*100 : 0,
+    avgPD: s.pd ? s.pdVal/s.pd : 0,
+  })).sort((a,b) => b.rate - a.rate);
+
+  // By channel
+  const chanMap = {};
+  for (const d of analyzed) {
+    const ch = d.channel || "Unknown";
+    if (!chanMap[ch]) chanMap[ch] = { total:0, pd:0, pdVal:0, arr:0 };
+    chanMap[ch].total++; chanMap[ch].arr += d.nbArr;
+    if (d.pdAmt > 0) { chanMap[ch].pd++; chanMap[ch].pdVal += d.pdAmt; }
+  }
+  const byChannel = Object.entries(chanMap).map(([ch,c]) => ({
+    label: ch, total: c.total, pdCount: c.pd, arr: c.arr, pdVal: c.pdVal,
+    rate: c.total ? c.pd/c.total*100 : 0,
+    avgPD: c.pd ? c.pdVal/c.pd : 0,
+  })).sort((a,b) => b.rate - a.rate);
+
+  // By stage
+  const stageMap = {};
+  for (const d of analyzed) {
+    if (!stageMap[d.stage]) stageMap[d.stage] = { total:0, pd:0, pdVal:0 };
+    stageMap[d.stage].total++;
+    if (d.pdAmt > 0) { stageMap[d.stage].pd++; stageMap[d.stage].pdVal += d.pdAmt; }
+  }
+  const stageOrder = ["Discovery","Qualified","Defined","Negotiation","Closing"];
+  const byStage = stageOrder.filter(s => stageMap[s]).map(s => ({
+    label: s, total: stageMap[s].total, pdCount: stageMap[s].pd,
+    rate: stageMap[s].pd/stageMap[s].total*100,
+    avgPD: stageMap[s].pd ? stageMap[s].pdVal/stageMap[s].pd : 0,
+  }));
+
+  // By rep (sorted by rate desc)
+  const byRep = Object.entries(
+    analyzed.reduce((acc, d) => {
+      if (!acc[d.rep_name]) acc[d.rep_name] = { total:0, pd:0, pdVal:0, arr:0, segment:d.segment };
+      acc[d.rep_name].total++; acc[d.rep_name].arr += d.nbArr;
+      if (d.pdAmt > 0) { acc[d.rep_name].pd++; acc[d.rep_name].pdVal += d.pdAmt; }
+      return acc;
+    }, {})
+  ).map(([rep, d]) => ({
+    rep, total: d.total, pdCount: d.pd, arr: d.arr, pdVal: d.pdVal,
+    rate: d.total ? d.pd/d.total*100 : 0,
+    avgPD: d.pd ? d.pdVal/d.pd : 0,
+    segment: d.segment,
+  })).sort((a,b) => b.rate - a.rate);
+
+  return { total, withPD: withPD.length, totalPD, totalARR, attachRate, avgPD, pdPctARR, bySegment, byChannel, byStage, byRep };
+}
+
+// ─── True Pipeline Estimator ──────────────────────────────────────────────────
+// Stage base rates calibrated to 2024-2025 GoGuardian closed won data:
+//   Won deals by age: 34.8% <30d, 20.1% 30-59d, 12.6% 60-89d, 8.8% 90-119d,
+//   12.1% 120-179d, 6.8% 180-269d, 4.7% 270+d
+//   Median close age: 50-52 days across segments
+const STAGE_BASE_RATE = { Discovery:0.15, Qualified:0.30, Defined:0.55, Negotiation:0.75, Closing:0.85 };
+
+function calcTruePipe(analyzed) {
+  let criticalARR = 0, warningARR = 0, cleanARR = 0, truePipe = 0;
+
+  for (const d of analyzed) {
+    const arr = d.nbArr; // Total ARR (already set as display field)
+
+    // Bucket by hygiene severity
+    if (d.severity === "critical") criticalARR += arr;
+    else if (d.severity === "warning") warningARR += arr;
+    else cleanARR += arr;
+
+    // Stage base conversion probability
+    let prob = STAGE_BASE_RATE[d.stage] || 0.20;
+
+    // Age haircut — calibrated to won deal distribution
+    // Only 4.7% of won deals were 270+ days old
+    if (d.age >= 270)      prob *= 0.50;
+    else if (d.age >= 180) prob *= 0.75;
+    else if (d.age >= 90)  prob *= 0.90;
+
+    // Hygiene haircut
+    if (d.severity === "critical")     prob *= 0.70; // -30%
+    else if (d.severity === "warning") prob *= 0.90; // -10%
+
+    truePipe += arr * prob;
+  }
+
+  const faceValue = criticalARR + warningARR + cleanARR;
+  return { criticalARR, warningARR, cleanARR, truePipe, faceValue };
+}
+
+
+async function fetchExecNarrative(analyzed, repSummaries, pdAnalysis, pipeMetrics, todayStr) {
+  const total = analyzed.length;
+  const critical = analyzed.filter(d => d.severity==="critical").length;
+  const warnings = analyzed.filter(d => d.severity==="warning").length;
+  const clean = analyzed.filter(d => d.severity==="clean").length;
+  const totalPipeline = analyzed.reduce((s,d) => s+d.nbArr, 0);
+  const score = Math.round(((clean + warnings*0.5) / total) * 100);
+
+  const stageBreakdown = {}, ageBreakdown = {over270:0,over90:0,under90:0}, flagTypes = {};
+  for (const d of analyzed) {
+    stageBreakdown[d.stage] = (stageBreakdown[d.stage]||0)+1;
+    if (d.age>=270) ageBreakdown.over270++;
+    else if (d.age>=90) ageBreakdown.over90++;
+    else ageBreakdown.under90++;
+    for (const f of d.flags) {
+      const key = f.includes("proof of life") ? "No proof of life" :
+                  f.includes("Discovery") ? "90+ days in Discovery" :
+                  f.includes("270") ? "270+ day opps" :
+                  f.includes("below $2") ? "Sub-$2K ARR" :
+                  f.includes("Next Step") ? "Missing next step/date" :
+                  f.includes("passed") ? "Past close date" :
+                  f.includes("quote") ? "Missing primary quote" :
+                  f.includes("stage for") ? "Stage stagnation" : "Other";
+      flagTypes[key] = (flagTypes[key]||0)+1;
+    }
+  }
+
+  const pdSummary = pdAnalysis ? `PD attach rate: ${pdAnalysis.attachRate.toFixed(1)}% overall. By segment: ${pdAnalysis.bySegment.map(s=>`${s.label} ${s.rate.toFixed(0)}%`).join(', ')}. Lowest rep attach: ${pdAnalysis.byRep[pdAnalysis.byRep.length-1]?.rep} at ${pdAnalysis.byRep[pdAnalysis.byRep.length-1]?.rate.toFixed(0)}%.` : "";
+  const tp = pipeMetrics ? `Est. True Pipe: $${Math.round(pipeMetrics.truePipe).toLocaleString()} (${(pipeMetrics.truePipe/pipeMetrics.faceValue*100).toFixed(0)}% of face). Critical ARR: $${Math.round(pipeMetrics.criticalARR).toLocaleString()}. Warning ARR: $${Math.round(pipeMetrics.warningARR).toLocaleString()}.` : "";
+
+  const prompt = `You are a GoGuardian New Business Pipeline Hygiene Analyst. Today: ${todayStr}.
+
+Pipeline: ${total} opps | Total Pipeline ARR: $${totalPipeline.toLocaleString()} | Score: ${score}/100
+Critical: ${critical} | Warnings: ${warnings} | Clean: ${clean}
+Stages: ${JSON.stringify(stageBreakdown)}
+Age: 270+: ${ageBreakdown.over270} | 90-269: ${ageBreakdown.over90} | <90: ${ageBreakdown.under90}
+Flags: ${JSON.stringify(flagTypes)}
+${pdSummary}
+${tp}
+Reps: ${repSummaries.map(r=>`${r.rep_name} ${r.hygiene_score}/100 (${r.critical_flags}crit ${r.warning_flags}warn, PD ${r.pd_rate.toFixed(0)}%)`).join(" | ")}
+
+Write 4-5 key_findings and 3 recommended_actions for a sales director. Cite specific numbers and rep names. Include a PD observation if notable.
+Return ONLY JSON (no markdown): {"key_findings":["..."],"recommended_actions":["..."]}`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:700, messages:[{role:"user",content:prompt}] })
+  });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  const data = await res.json();
+  const text = data.content.map(b=>b.text||"").join("");
+  const match = text.replace(/```json|```/g,"").match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("Could not parse AI narrative.");
+  return { parsed: JSON.parse(match[0]), score, total, critical, warnings, clean, totalPipeline };
+}
+
+// ─── UI Constants ─────────────────────────────────────────────────────────────
+const GG_BLUE   = "#0066FF";
+const GG_DARK   = "#0a0f1e";
+const GG_PANEL  = "#0d1424";
+const GG_BORDER = "#1e2d4a";
+const FLAG_COLORS = {
+  critical: { bg:"#1a0505", border:"#dc2626", text:"#fca5a5" },
+  warning:  { bg:"#1a1005", border:"#d97706", text:"#fcd34d" },
+  clean:    { bg:"#051a0a", border:"#16a34a", text:"#86efac" },
+};
+
+function ScoreDisplay({ score, size=80 }) {
+  const color = score>=75?"#16a34a":score>=50?"#d97706":"#dc2626";
+  const r=size/2-7, circ=2*Math.PI*r, fill=(score/100)*circ;
+  return (
+    <div style={{position:"relative",width:size,height:size,flexShrink:0}}>
+      <svg width={size} height={size} style={{transform:"rotate(-90deg)",position:"absolute"}}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={GG_BORDER} strokeWidth="5"/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="5" strokeDasharray={`${fill} ${circ}`} strokeLinecap="round"/>
+      </svg>
+      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color,fontWeight:800,fontSize:size*0.22,fontFamily:"monospace"}}>{score}</div>
+    </div>
+  );
+}
+
+function RateBar({ rate, color="#0066FF" }) {
+  return (
+    <div style={{flex:1,height:5,background:"#1e2d4a",borderRadius:3,overflow:"hidden",minWidth:60}}>
+      <div style={{width:`${Math.min(rate,100)}%`,height:"100%",background:color,borderRadius:3}}/>
+    </div>
+  );
+}
+
+function Badge({ severity }) {
+  const map={critical:["🔴","#dc2626"],warning:["🟡","#d97706"],clean:["🟢","#16a34a"]};
+  const [icon,color]=map[severity]||map.warning;
+  return <span style={{background:`${color}22`,color,border:`1px solid ${color}44`,padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:700,letterSpacing:0.8,whiteSpace:"nowrap"}}>{icon} {severity.toUpperCase()}</span>;
+}
+
+function StatCard({ label, value, sub, color="#fff" }) {
+  return (
+    <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:"14px 18px",flex:1,minWidth:110}}>
+      <div style={{color:"#64748b",fontSize:11,fontWeight:600,letterSpacing:0.8,textTransform:"uppercase",marginBottom:5}}>{label}</div>
+      <div style={{color,fontSize:24,fontWeight:800,fontFamily:"monospace",lineHeight:1}}>{value}</div>
+      {sub && <div style={{color:"#475569",fontSize:12,marginTop:3}}>{sub}</div>}
+    </div>
+  );
+}
+
+const fmt = (n) => {
+  const num = typeof n==="string" ? parseFloat(n.replace(/[$,]/g,"")) : n;
+  if (!num&&num!==0) return "N/A"; if (isNaN(num)) return "N/A";
+  if (num>=1000000) return `$${(num/1000000).toFixed(1)}M`;
+  if (num>=1000) return `$${(num/1000).toFixed(0)}K`;
+  return `$${num.toLocaleString()}`;
+};
+const pct = n => `${typeof n==="number"?n.toFixed(1):n}%`;
+
+function App() {
+  const [unlocked, setUnlocked]   = useState(false);
+  const [pinInput, setPinInput]   = useState("");
+  const [pinError, setPinError]   = useState(false);
+  const [uiStage, setUiStage]     = useState("upload");
+  const [csvData, setCsvData]     = useState(null);
+  const [colMap, setColMap]       = useState({});
+  const [fileName, setFileName]   = useState("");
+  const [results, setResults]     = useState(null);
+  const [pdData, setPdData]       = useState(null);
+  const [error, setError]         = useState(null);
+  const [activeTab, setActiveTab] = useState("exec");
+  const [expandedDeal, setExpanded] = useState(null);
+  const [filterSev, setFilterSev] = useState("all");
+  const [dragOver, setDragOver]   = useState(false);
+  const [progress, setProgress]   = useState("");
+  const [selectedRep, setSelectedRep] = useState(null);
+  const [copied, setCopied]       = useState(false);
+
+  const todayStr = new Date().toLocaleDateString("en-US", {year:"numeric",month:"long",day:"numeric"});
+
+  const handleFile = useCallback((f) => {
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith(".csv")) { setError("Please upload a .csv file."); return; }
+    setError(null); setFileName(f.name);
+    Papa.parse(f, {
+      header:true, skipEmptyLines:true, encoding:"latin1",
+      complete: (parsed) => {
+        if (!parsed.data?.length) { setError("CSV appears to be empty."); return; }
+        const headers = parsed.meta.fields||[];
+        const cm = buildColumnMap(headers);
+        setCsvData({ rows:parsed.data, headers });
+        setColMap(cm);
+        // Skip preview — go straight to loading
+        runAnalysisWithData(parsed.data, headers, cm, f.name);
+      },
+      error: () => setError("Failed to parse CSV.")
+    });
+  }, []);
+
+  const runAnalysisWithData = async (rows, headers, cm, fname) => {
+    setUiStage("loading"); setError(null);
+    try {
+      setProgress("Running hygiene checks on all opportunities…");
+      const analyzed = preAnalyze(rows, cm);
+
+      setProgress("Building rep scorecards…");
+      const repSummaries = buildRepSummaries(analyzed);
+      const coachingView = buildCoachingView(analyzed);
+      const pipeMetrics  = calcTruePipe(analyzed);
+
+      let pd = null;
+      if (cm["pd_amount"]) {
+        setProgress("Calculating PD attach rate…");
+        pd = buildPDAnalysis(analyzed);
+        setPdData(pd);
+      }
+
+      setProgress("Generating executive narrative…");
+      const { parsed, score, total, critical, warnings, clean, totalPipeline } =
+        await fetchExecNarrative(analyzed, repSummaries, pd, pipeMetrics, todayStr);
+
+      setResults({
+        fileName: fname,
+        exec_summary: {
+          total_opps: total, total_pipeline_value: totalPipeline, hygiene_score: score,
+          critical_flags: critical, warning_flags: warnings, clean_opps: clean,
+          key_findings: parsed.key_findings, recommended_actions: parsed.recommended_actions,
+          critical_arr: pipeMetrics.criticalARR,
+          warning_arr:  pipeMetrics.warningARR,
+          clean_arr:    pipeMetrics.cleanARR,
+          true_pipe:    pipeMetrics.truePipe,
+        },
+        rep_summaries: repSummaries,
+        coaching: coachingView,
+        deal_flags: analyzed.map(d => ({
+          opp_name:d.opp_name, rep_name:d.rep_name, account_name:d.account, stage:d.stage,
+          segment:d.segment, channel:d.channel, value:d.nbArr, age_days:d.age,
+          stage_duration:d.stageDur, close_date:d.closeStr, severity:d.severity,
+          flags:d.flags, recommended_action:d.recommended_action, pd_amt:d.pdAmt,
+        })),
+      });
+      setActiveTab("exec");
+      setUiStage("results");
+    } catch(err) {
+      setError(err.message);
+      setUiStage("upload");
+    }
+  };
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]);
+  }, [handleFile]);
+
+  const filteredDeals = (results?.deal_flags||[])
+    .filter(d => filterSev==="all" || d.severity===filterSev)
+    .sort((a,b) => ({critical:0,warning:1,clean:2}[a.severity]||1)-({critical:0,warning:1,clean:2}[b.severity]||1));
+
+  const hasPD = !!pdData;
+  const tabs = [
+    { id:"exec",     label:"Executive Summary" },
+    { id:"reps",     label:"Rep Scorecards" },
+    { id:"coaching", label:"Rep Coaching View" },
+    { id:"deals",    label:`Deal Flags (${results?.deal_flags?.length||0})` },
+    ...(hasPD ? [{ id:"pd", label:"PD Attach Rate" }] : []),
+    { id:"guide",    label:"Hygiene Guidelines" },
+  ];
+
+  const handleUnlock = async () => {
+    const h = await hashPin(pinInput);
+    if (h === ACCESS_HASH) {
+      setUnlocked(true);
+      setPinError(false);
+    } else {
+      setPinError(true);
+      setPinInput("");
+    }
+  };
+
+  if (!unlocked) return (
+    <div style={{minHeight:"100vh",background:"#05080f",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Sans','Helvetica Neue',sans-serif"}}>
+      <div style={{background:"#0d1424",border:"1px solid #1e2d4a",borderRadius:14,padding:"40px 48px",width:340,textAlign:"center"}}>
+        <div style={{width:44,height:44,background:"#0066ff",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:14,color:"#fff",margin:"0 auto 20px"}}>GG</div>
+        <div style={{fontWeight:700,fontSize:18,marginBottom:6,color:"#e2e8f0"}}>Pipeline Hygiene Analyzer</div>
+        <div style={{color:"#475569",fontSize:13,marginBottom:28}}>GoGuardian · Internal Use Only</div>
+        <input
+          type="password"
+          placeholder="Enter PIN"
+          value={pinInput}
+          onChange={e => { setPinInput(e.target.value); setPinError(false); }}
+          onKeyDown={e => e.key === "Enter" && handleUnlock()}
+          style={{width:"100%",padding:"11px 14px",background:"#080d1a",border:`1px solid ${pinError?"#dc2626":"#1e2d4a"}`,borderRadius:8,color:"#e2e8f0",fontSize:16,textAlign:"center",letterSpacing:6,outline:"none",boxSizing:"border-box",marginBottom:8}}
+        />
+        {pinError && <div style={{color:"#fca5a5",fontSize:12,marginBottom:8}}>Incorrect PIN. Try again.</div>}
+        <button onClick={handleUnlock}
+          style={{width:"100%",padding:"11px",background:"#0066ff",border:"none",borderRadius:8,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:4}}>
+          Unlock
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:GG_DARK,color:"#e2e8f0",fontFamily:"'IBM Plex Sans','Helvetica Neue',sans-serif"}}>
+
+      {/* Header */}
+      <div style={{borderBottom:`1px solid ${GG_BORDER}`,padding:"0 28px",display:"flex",alignItems:"center",justifyContent:"space-between",height:58,background:GG_PANEL}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:30,height:30,background:GG_BLUE,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:12,color:"#fff"}}>GG</div>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>Pipeline Hygiene Analyzer</div>
+            <div style={{color:"#475569",fontSize:11}}>New Business · GoGuardian · Pear Deck Learning</div>
+          </div>
+        </div>
+        {uiStage==="results" && (
+          <button onClick={()=>{setUiStage("upload");setCsvData(null);setResults(null);setPdData(null);setFileName("");}}
+            style={{padding:"6px 14px",background:"transparent",color:"#64748b",border:`1px solid ${GG_BORDER}`,borderRadius:6,cursor:"pointer",fontSize:13}}>
+            ← New Analysis
+          </button>
+        )}
+      </div>
+
+      <div style={{maxWidth:1100,margin:"0 auto",padding:"28px 24px"}}>
+
+        {/* ── UPLOAD ── */}
+        {uiStage==="upload" && (
+          <>
+            <div onDrop={onDrop} onDragOver={(e)=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
+              onClick={()=>document.getElementById("csv-in").click()}
+              style={{border:`2px dashed ${dragOver?GG_BLUE:GG_BORDER}`,borderRadius:14,padding:"60px 32px",textAlign:"center",
+                cursor:"pointer",background:dragOver?"#0066ff08":GG_PANEL,transition:"all 0.2s",marginBottom:20}}>
+              <input id="csv-in" type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+              <div style={{fontSize:48,marginBottom:14}}>📊</div>
+              <div style={{fontWeight:700,fontSize:22,marginBottom:8}}>Drop your Salesforce pipeline CSV here</div>
+              <div style={{color:"#475569",fontSize:14,marginBottom:28}}>or click to browse · analysis runs immediately on upload</div>
+              <div style={{display:"inline-block",background:"#0066ff0a",border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:"14px 22px",textAlign:"left"}}>
+                <div style={{color:"#64748b",fontSize:11,fontWeight:700,letterSpacing:0.8,marginBottom:10}}>RECOMMENDED SALESFORCE COLUMNS</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"4px 28px"}}>
+                  {["Account Name","Opportunity Name","Opportunity Owner","Owner Role","Stage","Stage Duration",
+                    "Age","New Business ARR","Total ARR","Close Date","Created Date","Last Activity",
+                    "Next Step","Next Steps Date","Next Steps Update","Primary Quote Status","Channel","Partner Account","PD ($)"].map(c=>(
+                    <div key={c} style={{color:"#94a3b8",fontSize:12}}>› {c}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {error && <div style={{marginTop:12,padding:"12px 16px",background:"#1a050522",border:"1px solid #dc262644",borderRadius:8,color:"#fca5a5",fontSize:14}}>⚠️ {error}</div>}
+          </>
+        )}
+
+        {/* ── LOADING ── */}
+        {uiStage==="loading" && (
+          <div style={{textAlign:"center",padding:"80px 0"}}>
+            <div style={{width:52,height:52,border:`3px solid ${GG_BORDER}`,borderTop:`3px solid ${GG_BLUE}`,
+              borderRadius:"50%",animation:"spin 0.85s linear infinite",margin:"0 auto 22px"}}/>
+            <div style={{fontWeight:700,fontSize:18,marginBottom:8}}>Analyzing {csvData?.rows?.length||""} opportunities…</div>
+            <div style={{color:"#64748b",fontSize:14}}>{progress}</div>
+          </div>
+        )}
+
+        {/* ── RESULTS ── */}
+        {uiStage==="results" && results && (
+          <>
+            <div style={{display:"flex",gap:2,marginBottom:22,borderBottom:`1px solid ${GG_BORDER}`}}>
+              {tabs.map(t=>(
+                <button key={t.id} onClick={()=>setActiveTab(t.id)}
+                  style={{padding:"10px 18px",background:"transparent",border:"none",cursor:"pointer",fontSize:14,fontWeight:600,
+                    color:activeTab===t.id?"#e2e8f0":"#475569",
+                    borderBottom:`2px solid ${activeTab===t.id?GG_BLUE:"transparent"}`,
+                    marginBottom:-1,transition:"all 0.15s"}}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* ── EXEC ── */}
+            {activeTab==="exec" && (()=>{
+              const ex = results.exec_summary;
+              return (
+                <div>
+                  <div style={{display:"flex",gap:14,marginBottom:18,flexWrap:"wrap"}}>
+                    <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:"18px 22px",display:"flex",alignItems:"center",gap:18,flexShrink:0}}>
+                      <ScoreDisplay score={ex.hygiene_score} size={86}/>
+                      <div>
+                        <div style={{color:"#64748b",fontSize:11,fontWeight:600,letterSpacing:0.8,textTransform:"uppercase",marginBottom:4}}>Overall Hygiene Score</div>
+                        <div style={{fontSize:13,fontWeight:700,color:ex.hygiene_score>=75?"#86efac":ex.hygiene_score>=50?"#fcd34d":"#fca5a5"}}>
+                          {ex.hygiene_score>=75?"✓ Healthy Pipeline":ex.hygiene_score>=50?"⚠ Needs Attention":"✗ Critical Issues Present"}
+                        </div>
+                        <div style={{fontSize:12,color:"#334155",marginTop:3}}>{results.fileName} · {todayStr}</div>
+                      </div>
+                    </div>
+                    <StatCard label="Total Pipeline" value={fmt(ex.total_pipeline_value)} sub={`${ex.total_opps} opps`} color="#60a5fa"/>
+                    <StatCard label="Critical ARR" value={fmt(ex.critical_arr)} sub={`${ex.critical_flags} opps`} color="#fca5a5"/>
+                    <StatCard label="Warning ARR" value={fmt(ex.warning_arr)} sub={`${ex.warning_flags} opps`} color="#fcd34d"/>
+                    <StatCard label="Clean ARR" value={fmt(ex.clean_arr)} sub={`${ex.clean_opps} opps`} color="#86efac"/>
+                    {hasPD && <StatCard label="PD Attach" value={pct(pdData.attachRate)} sub={`${fmt(pdData.totalPD)} total`} color="#f472b6"/>}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                    <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:22}}>
+                      <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>🔍 KEY FINDINGS</div>
+                      {(ex.key_findings||[]).map((f,i)=>(
+                        <div key={i} style={{display:"flex",gap:10,marginBottom:10}}>
+                          <span style={{color:"#dc2626",fontWeight:700,flexShrink:0}}>→</span>
+                          <span style={{fontSize:14,color:"#cbd5e1",lineHeight:1.6}}>{f}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:22}}>
+                      <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>✅ LEADERSHIP ACTIONS</div>
+                      {(ex.recommended_actions||[]).map((a,i)=>(
+                        <div key={i} style={{display:"flex",gap:10,marginBottom:10}}>
+                          <span style={{background:GG_BLUE,color:"#fff",borderRadius:4,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{i+1}</span>
+                          <span style={{fontSize:14,color:"#cbd5e1",lineHeight:1.6}}>{a}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ── Manager Rollup ── */}
+                  {(()=>{
+                    const repMap = {};
+                    (results.rep_summaries||[]).forEach(r => { repMap[r.rep_name] = r; });
+
+                    return (
+                      <div style={{marginTop:14}}>
+                        <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:10}}>👥 MANAGER ROLLUP</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                          {Object.entries(MANAGER_TEAMS).map(([mgr, reps]) => {
+                            const team = reps.map(n => repMap[n]).filter(Boolean);
+                            if (!team.length) return null;
+                            const totalOpps  = team.reduce((s,r) => s + r.total_opps, 0);
+                            const totalArr   = team.reduce((s,r) => s + r.total_value, 0);
+                            const totalCrit  = team.reduce((s,r) => s + r.critical_flags, 0);
+                            const totalWarn  = team.reduce((s,r) => s + r.warning_flags, 0);
+                            const totalClean = team.reduce((s,r) => s + r.clean_opps, 0);
+                            const avgScore   = Math.round(team.reduce((s,r) => s + r.hygiene_score, 0) / team.length);
+                            const pdRate     = hasPD ? team.reduce((s,r) => s + r.pd_count, 0) / totalOpps * 100 : null;
+                            const sorted     = [...team].sort((a,b) => a.hygiene_score - b.hygiene_score);
+                            return (
+                              <div key={mgr} style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:18}}>
+                                {/* Manager header */}
+                                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${GG_BORDER}`}}>
+                                  <ScoreDisplay score={avgScore} size={58}/>
+                                  <div style={{flex:1}}>
+                                    <div style={{fontWeight:700,fontSize:15,marginBottom:3}}>{mgr}</div>
+                                    <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:13}}>
+                                      <span style={{color:"#60a5fa",fontWeight:600}}>{fmt(totalArr)}</span>
+                                      <span style={{color:"#64748b"}}>{totalOpps} opps</span>
+                                      <span style={{color:"#fca5a5"}}>🔴 {totalCrit}</span>
+                                      <span style={{color:"#fcd34d"}}>🟡 {totalWarn}</span>
+                                      <span style={{color:"#86efac"}}>🟢 {totalClean}</span>
+                                      {pdRate!==null && <span style={{color:"#a78bfa"}}>PD {pct(pdRate)}</span>}
+                                    </div>
+                                  </div>
+                                </div>
+                                {/* Rep rows */}
+                                {sorted.map((rep,i) => {
+                                  const sc = rep.hygiene_score>=75?"#86efac":rep.hygiene_score>=50?"#fcd34d":"#fca5a5";
+                                  return (
+                                    <div key={i} style={{marginBottom: i<sorted.length-1?10:0}}>
+                                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                                        <span style={{color:sc,fontWeight:800,fontSize:13,width:28,flexShrink:0,textAlign:"right"}}>{rep.hygiene_score}</span>
+                                        <span style={{fontSize:13,fontWeight:600,color:"#cbd5e1",flex:1}}>{rep.rep_name}</span>
+                                        <span style={{color:"#475569",fontSize:12}}>{fmt(rep.total_value)}</span>
+                                        <span style={{color:"#fca5a5",fontSize:12,width:36,textAlign:"right"}}>🔴{rep.critical_flags}</span>
+                                        <span style={{color:"#fcd34d",fontSize:12,width:36,textAlign:"right"}}>🟡{rep.warning_flags}</span>
+                                        {pdRate!==null && <span style={{color:"#a78bfa",fontSize:12,width:40,textAlign:"right"}}>{pct(rep.pd_rate)}</span>}
+                                      </div>
+                                      {/* Hygiene score bar — 0 to 100 scale */}
+                                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                        <div style={{width:28,flexShrink:0}}/>
+                                        <div style={{flex:1,height:3,background:"#1e2d4a",borderRadius:2,overflow:"hidden"}}>
+                                          <div style={{width:`${rep.hygiene_score}%`,height:"100%",borderRadius:2,background:sc}}/>
+                                        </div>
+                                        <span style={{color:"#334155",fontSize:11,width:52,textAlign:"right"}}>{rep.total_opps} opps</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Segment Rollup ── */}
+                  {(()=>{
+                    const segs = ["Foundation","MM/Ent"];
+                    const repList = results.rep_summaries || [];
+
+                    const segData = segs.map(seg => {
+                      const team = repList.filter(r => r.segment === seg);
+                      if (!team.length) return null;
+                      const totalOpps  = team.reduce((s,r) => s + r.total_opps, 0);
+                      const totalArr   = team.reduce((s,r) => s + r.total_value, 0);
+                      const totalCrit  = team.reduce((s,r) => s + r.critical_flags, 0);
+                      const totalWarn  = team.reduce((s,r) => s + r.warning_flags, 0);
+                      const totalClean = team.reduce((s,r) => s + r.clean_opps, 0);
+                      const avgScore   = Math.round(team.reduce((s,r) => s + r.hygiene_score, 0) / team.length);
+                      const critPct    = totalOpps ? Math.round(totalCrit/totalOpps*100) : 0;
+                      const cleanPct   = totalOpps ? Math.round(totalClean/totalOpps*100) : 0;
+                      const pdRate     = hasPD ? team.reduce((s,r) => s + r.pd_count, 0) / totalOpps * 100 : null;
+                      const sorted     = [...team].sort((a,b) => a.hygiene_score - b.hygiene_score);
+                      return { seg, team, totalOpps, totalArr, totalCrit, totalWarn, totalClean, avgScore, critPct, cleanPct, pdRate, sorted };
+                    }).filter(Boolean);
+
+                    if (segData.length < 2) return null;
+                    const [F, M] = segData;
+                    const scoreDiff = M.avgScore - F.avgScore;
+                    const insight = scoreDiff < -5
+                      ? `MM/Ent scores ${Math.abs(scoreDiff)} pts lower than Foundation — expected given longer sales cycles, but worth watching if the gap grows.`
+                      : scoreDiff > 5
+                      ? `MM/Ent is actually outscoring Foundation by ${scoreDiff} pts — Foundation reps may need more hygiene coaching.`
+                      : `Segment scores are close this period (${Math.abs(scoreDiff)} pt gap) — hygiene issues are spread evenly across both motions.`;
+
+                    return (
+                      <div style={{marginTop:14}}>
+                        <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:10}}>🏢 SEGMENT ROLLUP</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                          {segData.map(({seg, team, totalOpps, totalArr, totalCrit, totalWarn, totalClean, avgScore, critPct, cleanPct, pdRate, sorted}) => {
+                            const segColor = seg === "Foundation" ? "#34d399" : "#818cf8";
+                            return (
+                              <div key={seg} style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:18}}>
+                                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${GG_BORDER}`}}>
+                                  <ScoreDisplay score={avgScore} size={58}/>
+                                  <div style={{flex:1}}>
+                                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                                      <span style={{fontWeight:700,fontSize:15}}>{seg}</span>
+                                      <span style={{background:`${segColor}22`,color:segColor,border:`1px solid ${segColor}33`,padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:600}}>{team.length} reps</span>
+                                    </div>
+                                    <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:13}}>
+                                      <span style={{color:"#60a5fa",fontWeight:600}}>{fmt(totalArr)}</span>
+                                      <span style={{color:"#64748b"}}>{totalOpps} opps</span>
+                                      <span style={{color:"#fca5a5"}}>🔴 {totalCrit} ({critPct}%)</span>
+                                      <span style={{color:"#fcd34d"}}>🟡 {totalWarn}</span>
+                                      <span style={{color:"#86efac"}}>🟢 {cleanPct}% clean</span>
+                                      {pdRate!==null && <span style={{color:"#a78bfa"}}>PD {pct(pdRate)}</span>}
+                                    </div>
+                                  </div>
+                                </div>
+                                {sorted.map((rep, i) => {
+                                  const sc = rep.hygiene_score>=75?"#86efac":rep.hygiene_score>=50?"#fcd34d":"#fca5a5";
+                                  return (
+                                    <div key={i} style={{marginBottom: i<sorted.length-1?10:0}}>
+                                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                                        <span style={{color:sc,fontWeight:800,fontSize:13,width:28,flexShrink:0,textAlign:"right"}}>{rep.hygiene_score}</span>
+                                        <span style={{fontSize:13,fontWeight:600,color:"#cbd5e1",flex:1}}>{rep.rep_name}</span>
+                                        <span style={{color:"#475569",fontSize:12}}>{fmt(rep.total_value)}</span>
+                                        <span style={{color:"#fca5a5",fontSize:12,width:36,textAlign:"right"}}>🔴{rep.critical_flags}</span>
+                                        <span style={{color:"#fcd34d",fontSize:12,width:36,textAlign:"right"}}>🟡{rep.warning_flags}</span>
+                                        {pdRate!==null && <span style={{color:"#a78bfa",fontSize:12,width:40,textAlign:"right"}}>{pct(rep.pd_rate)}</span>}
+                                      </div>
+                                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                        <div style={{width:28,flexShrink:0}}/>
+                                        <div style={{flex:1,height:3,background:"#1e2d4a",borderRadius:2,overflow:"hidden"}}>
+                                          <div style={{width:`${rep.hygiene_score}%`,height:"100%",borderRadius:2,background:sc}}/>
+                                        </div>
+                                        <span style={{color:"#334155",fontSize:11,width:52,textAlign:"right"}}>{rep.total_opps} opps</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{background:"#080d1a",border:`1px solid ${GG_BORDER}`,borderRadius:8,padding:"10px 16px",marginTop:10,display:"flex",gap:10,alignItems:"flex-start"}}>
+                          <span style={{color:"#475569",fontSize:13,flexShrink:0}}>💡</span>
+                          <span style={{color:"#64748b",fontSize:12,lineHeight:1.6}}>{insight}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                </div>
+              );
+            })()}
+
+            {/* ── REPS ── */}
+            {activeTab==="reps" && (
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {(results.rep_summaries||[]).sort((a,b)=>a.hygiene_score-b.hygiene_score).map((rep,i)=>(
+                  <div key={i} style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:18}}>
+                    <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:rep.top_issues?.length?12:0}}>
+                      <ScoreDisplay score={rep.hygiene_score} size={62}/>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                          <span style={{fontWeight:700,fontSize:16}}>{rep.rep_name}</span>
+                          <span style={{background:"#0066ff22",color:"#60a5fa",border:"1px solid #0066ff33",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:600}}>{rep.segment}</span>
+                        </div>
+                        <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"center"}}>
+                          <span style={{color:"#64748b",fontSize:13}}>{rep.total_opps} opps</span>
+                          <span style={{color:"#60a5fa",fontSize:13,fontWeight:600}}>{fmt(rep.total_value)}</span>
+                          <span style={{color:"#fca5a5",fontSize:13}}>🔴 {rep.critical_flags}</span>
+                          <span style={{color:"#fcd34d",fontSize:13}}>🟡 {rep.warning_flags}</span>
+                          <span style={{color:"#86efac",fontSize:13}}>🟢 {rep.clean_opps}</span>
+                          {hasPD && <span style={{color:"#a78bfa",fontSize:13}}>PD {pct(rep.pd_rate)} ({rep.pd_count} opps)</span>}
+                        </div>
+                      </div>
+                    </div>
+                    {rep.top_issues?.length>0 && (
+                      <div style={{borderTop:`1px solid ${GG_BORDER}`,paddingTop:10}}>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                          {rep.top_issues.map((issue,j)=>(
+                            <span key={j} style={{background:"#dc262611",color:"#fca5a5",border:"1px solid #dc262622",padding:"3px 10px",borderRadius:4,fontSize:12}}>{issue}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── COACHING ── */}
+            {activeTab==="coaching" && (()=>{
+              const coaching = results.coaching || {};
+              const repNames = Object.keys(coaching).sort();
+              const activeRep = selectedRep && coaching[selectedRep] ? selectedRep : repNames[0];
+              const repData = coaching[activeRep];
+
+              // Flatten all opps for the active rep into a single list
+              const allOpps = repData
+                ? Object.values(repData.categories).flat().reduce((acc, o) => {
+                    if (!acc.find(x => x.opp_name === o.opp_name)) acc.push(o);
+                    return acc;
+                  }, [])
+                : [];
+              const criticalOpps = allOpps.filter(o => o.severity === "critical");
+              const warningOpps  = allOpps.filter(o => o.severity === "warning");
+
+              const generateCopyText = (repName) => {
+                const data = coaching[repName];
+                if (!data) return "";
+                const opps = Object.values(data.categories).flat().reduce((acc, o) => {
+                  if (!acc.find(x => x.opp_name === o.opp_name)) acc.push(o);
+                  return acc;
+                }, []);
+                const crit = opps.filter(o => o.severity === "critical");
+                const warn = opps.filter(o => o.severity === "warning");
+                const lines = [`Pipeline Hygiene Review — ${repName}`, `Generated: ${todayStr}`, ""];
+                const writeOpps = (list, label) => {
+                  if (!list.length) return;
+                  lines.push(`${label} (${list.length})`);
+                  lines.push("─".repeat(40));
+                  for (const o of list) {
+                    lines.push(`• ${o.opp_name}${o.account && o.account!==o.opp_name?` (${o.account})`:""} — ${o.stage}, ${fmt(o.nbArr)}, ${o.age}d old${o.closeStr?`, close ${o.closeStr}`:""}`);
+                    for (const f of o.flags) lines.push(`  ⚑ ${f}`);
+                    lines.push(`  → ${o.recommended_action}`);
+                    lines.push("");
+                  }
+                };
+                writeOpps(crit, "🔴 CRITICAL");
+                writeOpps(warn, "🟡 WARNING");
+                return lines.join("\n");
+              };
+
+              const handleCopy = (repName) => {
+                const text = generateCopyText(repName);
+                try {
+                  const ta = document.createElement("textarea");
+                  ta.value = text;
+                  ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+                  document.body.appendChild(ta);
+                  ta.focus();
+                  ta.select();
+                  document.execCommand("copy");
+                  document.body.removeChild(ta);
+                  setCopied(repName);
+                  setTimeout(() => setCopied(null), 2500);
+                } catch(e) {
+                  console.warn("Copy failed:", e);
+                }
+              };
+
+              const OppCard = ({ o }) => (
+                <div style={{background:"#080d1a",border:`1px solid ${GG_BORDER}`,borderRadius:8,padding:"12px 15px",marginBottom:8}}>
+                  <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:8,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:700,fontSize:14,color:"#e2e8f0"}}>{o.opp_name}</span>
+                    {o.account && o.account!==o.opp_name && <span style={{color:"#475569",fontSize:12}}>· {o.account}</span>}
+                    <span style={{color:"#475569",fontSize:12,marginLeft:"auto",whiteSpace:"nowrap"}}>
+                      {o.stage} · {fmt(o.nbArr)} · {o.age}d old{o.closeStr?` · close ${o.closeStr}`:""}
+                    </span>
+                  </div>
+                  <div style={{marginBottom:8}}>
+                    {o.flags.map((f,fi) => (
+                      <div key={fi} style={{display:"flex",gap:7,marginBottom:3}}>
+                        <span style={{color:"#94a3b8",flexShrink:0,fontSize:12}}>⚑</span>
+                        <span style={{fontSize:12,color:"#94a3b8",lineHeight:1.5}}>{f}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{background:"#0066ff0d",border:"1px solid #0066ff1a",borderRadius:6,padding:"7px 11px",display:"flex",gap:8}}>
+                    <span style={{color:"#60a5fa",fontWeight:700,fontSize:11,whiteSpace:"nowrap",marginTop:1}}>→ ACTION:</span>
+                    <span style={{fontSize:12,color:"#cbd5e1",lineHeight:1.5}}>{o.recommended_action}</span>
+                  </div>
+                </div>
+              );
+
+              return (
+                <div style={{display:"flex",gap:14}}>
+                  {/* Sidebar */}
+                  <div style={{width:195,flexShrink:0}}>
+                    <div style={{fontWeight:700,fontSize:11,color:"#64748b",letterSpacing:0.8,marginBottom:8,textTransform:"uppercase"}}>Select Rep</div>
+                    {repNames.map(name => {
+                      const d = coaching[name];
+                      const all = Object.values(d.categories).flat().reduce((acc,o)=>{if(!acc.find(x=>x.opp_name===o.opp_name))acc.push(o);return acc;},[]);
+                      const crit = all.filter(o=>o.severity==="critical").length;
+                      const warn = all.filter(o=>o.severity==="warning").length;
+                      return (
+                        <button key={name} onClick={()=>setSelectedRep(name)}
+                          style={{width:"100%",textAlign:"left",padding:"9px 12px",marginBottom:4,borderRadius:8,cursor:"pointer",
+                            background:activeRep===name?"#0066ff22":GG_PANEL,
+                            border:`1px solid ${activeRep===name?GG_BLUE:GG_BORDER}`,
+                            color:activeRep===name?"#e2e8f0":"#94a3b8"}}>
+                          <div style={{fontWeight:600,fontSize:13,marginBottom:3}}>{name}</div>
+                          <div style={{display:"flex",gap:8,fontSize:11}}>
+                            {crit>0 && <span style={{color:"#fca5a5"}}>🔴 {crit} critical</span>}
+                            {warn>0 && <span style={{color:"#fcd34d"}}>🟡 {warn} warning</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Detail pane */}
+                  {repData && (
+                    <div style={{flex:1,minWidth:0}}>
+                      {/* Header */}
+                      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:"13px 18px"}}>
+                        <div style={{flex:1}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+                            <span style={{fontWeight:700,fontSize:17}}>{activeRep}</span>
+                            <span style={{background:"#0066ff22",color:"#60a5fa",border:"1px solid #0066ff33",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:600}}>{repData.segment}</span>
+                          </div>
+                          <div style={{color:"#64748b",fontSize:13}}>
+                            {criticalOpps.length>0 && <span style={{color:"#fca5a5",marginRight:12}}>🔴 {criticalOpps.length} critical</span>}
+                            {warningOpps.length>0  && <span style={{color:"#fcd34d"}}>🟡 {warningOpps.length} warning</span>}
+                          </div>
+                        </div>
+                        <button onClick={()=>handleCopy(activeRep)}
+                          style={{padding:"8px 16px",background:copied===activeRep?"#16a34a22":"#0066ff22",
+                            border:`1px solid ${copied===activeRep?"#16a34a44":"#0066ff44"}`,
+                            color:copied===activeRep?"#86efac":"#60a5fa",
+                            borderRadius:7,cursor:"pointer",fontSize:13,fontWeight:600,whiteSpace:"nowrap",transition:"all 0.2s"}}>
+                          {copied===activeRep?"✓ Copied!":"📋 Copy for Slack / Email"}
+                        </button>
+                      </div>
+
+                      {/* Critical bucket */}
+                      {criticalOpps.length > 0 && (
+                        <div style={{marginBottom:18}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                            <span style={{color:"#dc2626",fontWeight:700,fontSize:13}}>🔴 CRITICAL</span>
+                            <span style={{background:"#dc262622",color:"#fca5a5",border:"1px solid #dc262633",padding:"1px 8px",borderRadius:4,fontSize:11,fontWeight:700}}>{criticalOpps.length} deal{criticalOpps.length!==1?"s":""}</span>
+                            <span style={{color:"#475569",fontSize:12}}>— requires immediate action</span>
+                          </div>
+                          {criticalOpps.map((o,i) => <OppCard key={i} o={o}/>)}
+                        </div>
+                      )}
+
+                      {/* Warning bucket */}
+                      {warningOpps.length > 0 && (
+                        <div>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                            <span style={{color:"#d97706",fontWeight:700,fontSize:13}}>🟡 WARNING</span>
+                            <span style={{background:"#d9770622",color:"#fcd34d",border:"1px solid #d9770633",padding:"1px 8px",borderRadius:4,fontSize:11,fontWeight:700}}>{warningOpps.length} deal{warningOpps.length!==1?"s":""}</span>
+                            <span style={{color:"#475569",fontSize:12}}>— address this week</span>
+                          </div>
+                          {warningOpps.map((o,i) => <OppCard key={i} o={o}/>)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── DEALS ── */}
+            {activeTab==="deals" && (
+              <div>
+                <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+                  {[["all","All"],["critical","Critical"],["warning","Warning"],["clean","Clean"]].map(([s,l])=>{
+                    const counts={all:results.deal_flags?.length,critical:results.exec_summary?.critical_flags,warning:results.exec_summary?.warning_flags,clean:results.exec_summary?.clean_opps};
+                    return (
+                      <button key={s} onClick={()=>{setFilterSev(s);setExpanded(null);}}
+                        style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${filterSev===s?GG_BLUE:GG_BORDER}`,
+                          background:filterSev===s?"#0066ff22":"transparent",color:filterSev===s?"#60a5fa":"#64748b",
+                          cursor:"pointer",fontSize:13,fontWeight:600}}>
+                        {l} ({counts[s]||0})
+                      </button>
+                    );
+                  })}
+                  <span style={{marginLeft:"auto",color:"#334155",fontSize:12}}>Sorted by severity · click to expand</span>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                  {filteredDeals.map((deal,i)=>{
+                    const c=FLAG_COLORS[deal.severity]||FLAG_COLORS.warning;
+                    const isOpen=expandedDeal===i;
+                    return (
+                      <div key={i} style={{background:c.bg,border:`1px solid ${c.border}22`,borderLeft:`3px solid ${c.border}`,borderRadius:8,overflow:"hidden"}}>
+                        <div onClick={()=>setExpanded(isOpen?null:i)} style={{padding:"11px 15px",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+                          <Badge severity={deal.severity}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,fontSize:13,marginBottom:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{deal.opp_name}</div>
+                            <div style={{color:"#64748b",fontSize:12}}>
+                              {deal.rep_name}{deal.account_name?` · ${deal.account_name}`:""} · {deal.stage} · {fmt(deal.value)} · {deal.age_days}d{deal.close_date?` · Close: ${deal.close_date}`:""}
+                              {deal.pd_amt>0 && <span style={{color:"#a78bfa",marginLeft:6}}>PD {fmt(deal.pd_amt)}</span>}
+                            </div>
+                          </div>
+                          <span style={{color:"#334155",fontSize:12,flexShrink:0}}>{isOpen?"▲":"▼"}</span>
+                        </div>
+                        {isOpen && (
+                          <div style={{borderTop:`1px solid ${c.border}22`,padding:"12px 15px"}}>
+                            {deal.flags?.length>0 && (
+                              <div style={{marginBottom:10}}>
+                                <div style={{color:"#64748b",fontSize:11,fontWeight:700,letterSpacing:0.8,marginBottom:6}}>FLAGS</div>
+                                {deal.flags.map((f,j)=>(
+                                  <div key={j} style={{display:"flex",gap:8,marginBottom:5}}>
+                                    <span style={{color:c.text,flexShrink:0}}>⚑</span>
+                                    <span style={{fontSize:13,color:"#cbd5e1"}}>{f}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div style={{background:"#0066ff0d",border:"1px solid #0066ff22",borderRadius:6,padding:"9px 13px"}}>
+                              <span style={{color:"#60a5fa",fontWeight:700,fontSize:11,marginRight:8}}>RECOMMENDED ACTION:</span>
+                              <span style={{color:"#cbd5e1",fontSize:13}}>{deal.recommended_action}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── PD ATTACH RATE ── */}
+            {activeTab==="pd" && pdData && (
+              <div>
+                {/* Overall stats */}
+                <div style={{display:"flex",gap:14,marginBottom:20,flexWrap:"wrap"}}>
+                  <StatCard label="Overall Attach Rate" value={pct(pdData.attachRate)} sub={`${pdData.withPD} of ${pdData.total} opps`} color="#a78bfa"/>
+                  <StatCard label="Total PD in Pipeline" value={fmt(pdData.totalPD)} sub={`avg ${fmt(pdData.avgPD)} when attached`} color="#a78bfa"/>
+                  <StatCard label="PD as % of ARR" value={pct(pdData.pdPctARR)} sub={`on $${(pdData.totalARR/1000000).toFixed(1)}M NB pipeline`} color="#a78bfa"/>
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+                  {/* By Segment */}
+                  <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:20}}>
+                    <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>BY SEGMENT</div>
+                    {pdData.bySegment.map((s,i)=>(
+                      <div key={i} style={{marginBottom:12}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                          <span style={{fontSize:13,color:"#cbd5e1",fontWeight:600}}>{s.label}</span>
+                          <span style={{fontSize:13,color:"#a78bfa",fontWeight:700}}>{pct(s.rate)}</span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <RateBar rate={s.rate} color="#a78bfa"/>
+                          <span style={{color:"#475569",fontSize:12,whiteSpace:"nowrap"}}>{s.pdCount}/{s.total} · avg {fmt(s.avgPD)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* By Channel */}
+                  <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:20}}>
+                    <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>BY CHANNEL</div>
+                    {pdData.byChannel.map((c,i)=>(
+                      <div key={i} style={{marginBottom:12}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                          <span style={{fontSize:13,color:"#cbd5e1",fontWeight:600}}>{c.label}</span>
+                          <span style={{fontSize:13,color:"#a78bfa",fontWeight:700}}>{pct(c.rate)}</span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <RateBar rate={c.rate} color="#7c3aed"/>
+                          <span style={{color:"#475569",fontSize:12,whiteSpace:"nowrap"}}>{c.pdCount}/{c.total} · avg {fmt(c.avgPD)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* By Stage */}
+                <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:20,marginBottom:14}}>
+                  <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>BY STAGE — attach rate should increase as deals progress</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12}}>
+                    {pdData.byStage.map((s,i)=>(
+                      <div key={i} style={{background:"#080d1a",border:`1px solid ${GG_BORDER}`,borderRadius:8,padding:"12px 16px"}}>
+                        <div style={{color:"#64748b",fontSize:11,fontWeight:700,letterSpacing:0.8,marginBottom:6}}>{s.label.toUpperCase()}</div>
+                        <div style={{color:"#a78bfa",fontSize:22,fontWeight:800,fontFamily:"monospace",marginBottom:4}}>{pct(s.rate)}</div>
+                        <div style={{color:"#475569",fontSize:12}}>{s.pdCount}/{s.total} opps</div>
+                        {s.avgPD>0 && <div style={{color:"#475569",fontSize:12}}>avg {fmt(s.avgPD)}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* By Rep */}
+                <div style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:20}}>
+                  <div style={{fontWeight:700,fontSize:12,color:"#64748b",letterSpacing:0.8,marginBottom:14}}>BY REP — sorted highest to lowest attach rate</div>
+                  {pdData.byRep.map((rep,i)=>{
+                    const rateColor = rep.rate >= 60 ? "#16a34a" : rep.rate >= 40 ? "#d97706" : "#dc2626";
+                    return (
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:12,marginBottom:10,padding:"10px 14px",background:"#080d1a",borderRadius:8}}>
+                        <div style={{width:44,textAlign:"right",color:rateColor,fontWeight:800,fontSize:14,fontFamily:"monospace",flexShrink:0}}>{pct(rep.rate)}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                            <span style={{fontWeight:600,fontSize:14,color:"#cbd5e1"}}>{rep.rep}</span>
+                            <span style={{background:"#0066ff22",color:"#60a5fa",fontSize:10,padding:"1px 6px",borderRadius:3,fontWeight:600}}>{rep.segment}</span>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            <RateBar rate={rep.rate} color={rateColor}/>
+                            <span style={{color:"#475569",fontSize:12,whiteSpace:"nowrap"}}>{rep.pdCount}/{rep.total} · avg {fmt(rep.avgPD)} · NB {fmt(rep.arr)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── GUIDELINES ── */}
+            {activeTab==="guide" && (
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                {[
+                  {title:"Universal Requirements",icon:"📋",items:["Notes/activity log present on every opp","Primary quote generated & marked as primary","Pilots: 2 opps required ($0 nominal + full deal value)","Minimum New Business ARR: $2,000","Exceptions: NYCDOE, LAUSD, BOCES, large district contracts"]},
+                  {title:"Opportunity Age Guardrails",icon:"⏱",items:["90–269 days: Proof of life required within ±30 days","90+ days in Discovery: Must advance stage or close","270+ days: Must be closed (MM/Ent = Director approval)","Stage Duration 90+ days in Discovery = stagnation flag"]},
+                  {title:"Stage Movement Principle",icon:"🔑",items:["Customer ATTENDED a meeting","Customer RESPONDED to quote or pricing","Customer CONFIRMED approval or RFP timeline","Customer ENGAGED legal or procurement","Stage advancement requires customer action — not GG action"]},
+                  {title:"Proof of Life (90+ day opps)",icon:"💓",items:["Scheduled customer meeting within ±30 days","Product evaluation / trial","RFP participation","Evaluated using Last Activity + Next Steps Date fields"]},
+                  {title:"Close Date Red Flags",icon:"🚩",items:["MM/Ent opp in Discovery or Qualified + close < 30 days","Close date already passed","Stage Duration far exceeding age norms"]},
+                  {title:"What This App Evaluates",icon:"🔬",items:["Age vs. stage (Age field)","Stage Duration for stagnation","New Business ARR vs. $2K minimum","Next Step + date presence at Qualified/Defined/Negotiation","Proof of life via Last Activity + Next Steps Date","Primary Quote Status field","PD ($) attach rate by rep, segment, channel, and stage"]},
+                ].map((s,i)=>(
+                  <div key={i} style={{background:GG_PANEL,border:`1px solid ${GG_BORDER}`,borderRadius:10,padding:18}}>
+                    <div style={{fontWeight:700,fontSize:13,marginBottom:12,display:"flex",gap:8,color:"#94a3b8"}}>
+                      <span>{s.icon}</span><span>{s.title}</span>
+                    </div>
+                    {s.items.map((item,j)=>(
+                      <div key={j} style={{display:"flex",gap:8,marginBottom:6}}>
+                        <span style={{color:GG_BLUE,flexShrink:0}}>›</span>
+                        <span style={{fontSize:13,color:"#94a3b8",lineHeight:1.5}}>{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } * { box-sizing: border-box; }`}</style>
+    </div>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
