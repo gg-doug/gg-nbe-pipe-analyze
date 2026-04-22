@@ -639,6 +639,7 @@ function fetchExecNarrative(analyzed, repSummaries, pdAnalysis, pipeMetrics, tod
 
 // ─── UI Constants ─────────────────────────────────────────────────────────────
 const APP_VERSION = "v1.62";
+  const DATA_UPDATED = "April 22, 2026 · 05:35 AM PST";
   const GG_BLUE   = "#1d4ed8";
 const GG_DARK   = "#f4f5f7";
 const GG_PANEL  = "#ffffff";
@@ -864,7 +865,8 @@ function App() {
       <div style={{background:"#ffffff",border:"1px solid #e5e7eb",boxShadow:"0 4px 24px rgba(0,0,0,0.08)",borderRadius:14,padding:"40px 48px",width:340,textAlign:"center"}}>
         <div style={{margin:"0 auto 24px",display:"flex",justifyContent:"center"}} dangerouslySetInnerHTML={{__html: '<svg viewBox="20 260 620 130" style="width:200px;height:42px" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">' + window.GG_LOGO_SVG + '</svg>'}}/>
         <div style={{fontWeight:700,fontSize:18,marginBottom:6,color:"#111827"}}>Pipeline Analysis <span style={{color:"#d1d5db",fontWeight:400,fontSize:"0.75em",letterSpacing:0}}>{APP_VERSION}</span></div>
-        <div style={{color:"#6b7280",fontSize:13,marginBottom:28}}>GoGuardian · Internal Use Only</div>
+        <div style={{color:"#6b7280",fontSize:13,marginBottom:8}}>GoGuardian · Internal Use Only</div>
+        <div style={{color:"#9ca3af",fontSize:11,marginBottom:24}}>Data updated: {DATA_UPDATED}</div>
         <input
           type="password"
           placeholder=""
@@ -893,6 +895,7 @@ function App() {
           <div>
             <div style={{fontWeight:700,fontSize:15,color:"#111827"}}>Pipeline Analysis <span style={{color:"#d1d5db",fontWeight:400,fontSize:"0.75em",letterSpacing:0}}>{APP_VERSION}</span></div>
             <div style={{color:"#6b7280",fontSize:11}}>New Business · GoGuardian · Pear Deck Learning</div>
+          <div style={{color:"#9ca3af",fontSize:10,marginTop:1}}>Data updated: {DATA_UPDATED}</div>
           </div>
         </div>
 
