@@ -2074,7 +2074,7 @@ function App() {
                             }
                             {o.in_hierarchy && <span style={{fontSize:10,fontWeight:700,color:"#6d28d9",background:"#f5f3ff",border:"1px solid #ddd6fe",borderRadius:3,padding:"1px 6px",flexShrink:0}}>Hierarchy</span>}
                           </div>
-                          <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}><RepLink name={o.rep_name} style={{color:"#9ca3af",fontSize:11}} /> · {o.stage} · {fmt(o.value||0)}{selData.cat==="Missing Primary Quote" && o.created_date ? ` · created ${o.created_date}` : ""}</div>
+                          <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}><RepLink name={o.rep_name} style={{color:"#9ca3af",fontSize:11}} /> · {o.stage} · {fmt(o.value||0)} · {o.age_days}d{selData.cat==="Missing Primary Quote" && o.created_date ? ` · created ${o.created_date}` : ""}</div>
                         </div>
                       ))}
                     </div>
